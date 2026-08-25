@@ -1,6 +1,7 @@
 import random
 from app.database import SessionLocal
-from app.models import Product
+from app.models import Product, User, Cart, CartItem, Order, OrderItem
+import app.models as models
 
 def seed_data():
     db = SessionLocal()
@@ -82,6 +83,45 @@ def seed_data():
     db.add_all(products)
     db.commit()
     print(f"Successfully seeded database with {len(products)} CampusGadgets products.")
+    # Create sample users
+    user1 = User(email="alice@example.com", full_name="Alice", is_active=True)
+    user2 = User(email="bob@example.com", full_name="Bob", is_active=True)
+    db.add_all([user1, user2])
+    db.commit()
+    db.refresh(user1)
+    db.refresh(user2)
+
+    # Create a sample cart for user1
+    cart = Cart(user_id=user1.id)
+    db.add(cart)
+    db.commit()
+    db.refresh(cart)
+
+    # Add 2-3 items to cart (use first three products)
+    sample_products = db.query(Product).limit(3).all()
+    for prod in sample_products:
+        cart_item = CartItem(cart_id=cart.id, product_id=prod.id, quantity=1)
+        db.add(cart_item)
+    db.commit()
+
+    # Create a sample order in pending status from this cart
+    total_amount = sum(item.quantity * item.product.price for item in db.query(CartItem).filter(CartItem.cart_id == cart.id).all())
+    order = Order(user_id=user1.id, status="pending", total_amount=total_amount)
+    db.add(order)
+    db.commit()
+    db.refresh(order)
+    # Copy cart items to order items
+    for ci in db.query(CartItem).filter(CartItem.cart_id == cart.id).all():
+        order_item = OrderItem(
+            order_id=order.id,
+            product_id=ci.product_id,
+            quantity=ci.quantity,
+            price_at_purchase=ci.product.price,
+        )
+        db.add(order_item)
+    db.commit()
+
+    print("Sample users, cart, and order created.")
     db.close()
 
 if __name__ == "__main__":
