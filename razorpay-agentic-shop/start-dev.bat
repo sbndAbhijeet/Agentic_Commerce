@@ -16,5 +16,5 @@ start "Frontend React" cmd /k "cd frontend && npm run dev"
 echo.
 echo All services are starting in separate windows...
 echo Backend:  http://localhost:8000/docs
-echo Frontend: http://localhost:3000  (or 5173)
+echo Frontend: http://127.0.0.1:5173
 pause

@@ -27,3 +27,4 @@ A clean FastAPI + PostgreSQL project for a simple ecommerce catalog.
    cd backend
    uvicorn app.main:app --reload
    ```
+

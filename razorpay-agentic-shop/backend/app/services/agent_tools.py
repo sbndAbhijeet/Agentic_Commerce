@@ -20,6 +20,8 @@ from sqlalchemy import or_
 from sqlalchemy.orm import Session
 
 from app import models
+from app.core.config import settings
+from app.services.razorpay_service import create_razorpay_order
 
 
 
@@ -281,12 +283,26 @@ def create_order(
         db.commit()
         db.refresh(order)
 
+        amount_in_paise = int((total * 100).quantize(Decimal("1")))
+        razorpay_order = create_razorpay_order(
+            amount_in_paise=amount_in_paise,
+            receipt=order.id,
+            notes={"local_order_id": order.id, "cart_id": cart_id},
+        )
+        razorpay_order_id = razorpay_order.get("id")
+        if not razorpay_order_id:
+            raise ValueError("Razorpay returned an invalid order response.")
+        order.razorpay_order_id = razorpay_order_id
+        db.commit()
+        db.refresh(order)
+
         return {
             "order": {
                 "id": order.id,
                 "status": order.status,
                 "total_amount": float(order.total_amount),
                 "user_id": order.user_id,
+                "razorpay_order_id": order.razorpay_order_id,
                 "items": [
                     {
                         "product_id": oi.product_id,
@@ -297,7 +313,13 @@ def create_order(
                     for oi in order.items
                 ],
                 "created_at": order.created_at.isoformat(),
-            }
+            },
+            "razorpay_order": {
+                "id": razorpay_order_id,
+                "amount": int(razorpay_order.get("amount", amount_in_paise)),
+                "currency": razorpay_order.get("currency", "INR"),
+                "key_id": settings.RAZORPAY_KEY_ID,
+            },
         }
     except Exception as e:
         db.rollback()

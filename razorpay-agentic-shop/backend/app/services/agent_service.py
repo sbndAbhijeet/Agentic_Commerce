@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import logging
 from typing import Any
 
 from openai import OpenAI
@@ -14,6 +15,7 @@ from app.services.agent_tools import TOOL_FUNCTIONS, TOOLS_SCHEMA
 
 OPENROUTER_BASE_URL = "https://openrouter.ai/api/v1"
 MAX_TOOL_ROUNDS = 6
+logger = logging.getLogger(__name__)
 
 SYSTEM_PROMPT = """You are a helpful shopping assistant for CampusGadgets.
 
@@ -147,12 +149,25 @@ def run_agent(
             return_value = {"answer": answer}
             _add_updated_data(return_value, tool_results)
     except Exception as exc:
-        error = f"Agent request failed: {exc}"
+        # Provider exceptions can contain response bodies, account metadata,
+        # rate-limit headers, or internal provider names. Never return them to
+        # the shopper or persist them in the audit response.
+        logger.exception("OpenRouter agent request failed")
+        error = _friendly_provider_error(exc)
         return_value = {"error": error}
 
     audit_id = _save_audit(db, session_id, user_message, answer, tool_calls, tool_results, error, cart_id)
     return_value["audit_id"] = audit_id
     return return_value
+
+
+def _friendly_provider_error(exc: Exception) -> str:
+    """Convert provider failures into safe messages for the chat response."""
+    status_code = getattr(exc, "status_code", None)
+    details = str(exc).lower()
+    if status_code == 429 or "rate limit" in details or "ratelimit" in details:
+        return "The shopping assistant is temporarily busy. Please try again shortly."
+    return "The shopping assistant is temporarily unavailable. Please try again shortly."
 
 
 def _build_user_context(user_message: str, cart_id: str | None) -> str:

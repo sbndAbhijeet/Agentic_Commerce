@@ -20,6 +20,24 @@ export interface OrderResponse {
   items: OrderItemResponse[];
 }
 
+export interface RazorpayOrderResponse {
+  id: string;
+  amount: number;
+  currency: string;
+  key_id: string;
+}
+
+export interface OrderCreationResponse {
+  order: OrderResponse;
+  razorpay_order: RazorpayOrderResponse;
+}
+
+export interface PaymentVerificationRequest {
+  razorpay_order_id: string;
+  razorpay_payment_id: string;
+  razorpay_signature: string;
+}
+
 export interface OrderCreate {
   cart_id: string;
   user_id?: string | null;

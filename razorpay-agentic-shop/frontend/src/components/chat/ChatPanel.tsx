@@ -1,7 +1,9 @@
 import React, { useEffect, useRef, useState } from 'react'
 import { Bot, Check, Send, ShoppingCart, Sparkles, User, X } from 'lucide-react'
 import { sendChatMessage } from '../../api/chat'
+import { ordersApi } from '../../api/orders'
 import { useCart } from '../../context/CartContext'
+import { payWithRazorpay } from '../../services/razorpay'
 
 interface ChatPanelProps {
   cartId?: string | null
@@ -38,7 +40,7 @@ export const ChatPanel: React.FC<ChatPanelProps> = ({
   onClose,
   embedded = false,
 }) => {
-  const { cartId: activeCartId, syncCart, refreshCart, totalItems } = useCart()
+  const { cartId: activeCartId, syncCart, refreshCart, totalItems, clearCartSession } = useCart()
   const [messages, setMessages] = useState<ChatMessage[]>([
     createMessage(
       'assistant',
@@ -119,6 +121,24 @@ export const ChatPanel: React.FC<ChatPanelProps> = ({
         ...current,
         createMessage('assistant', response.reply, response.order_id),
       ])
+
+      if (response.order_id) {
+        try {
+          const paymentDetails = await ordersApi.getPaymentDetails(response.order_id)
+          await payWithRazorpay(paymentDetails)
+          await clearCartSession()
+          setMessages((current) => [
+            ...current,
+            createMessage('assistant', 'Payment successful! Your order is confirmed and your cart has been cleared.'),
+          ])
+        } catch (paymentError: unknown) {
+          const message = paymentError instanceof Error ? paymentError.message : 'Payment could not be completed.'
+          setMessages((current) => [
+            ...current,
+            createMessage('assistant', `Payment not completed: **${message}** You can retry from Checkout.`),
+          ])
+        }
+      }
     } catch (error: unknown) {
       const errorMessage = error instanceof Error ? error.message : 'Unable to reach the assistant.'
       setMessages((current) => [

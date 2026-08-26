@@ -1,14 +1,24 @@
 import apiClient from './client'
-import type { OrderResponse } from '../types/order'
+import type { OrderCreationResponse, OrderResponse, PaymentVerificationRequest, RazorpayOrderResponse } from '../types/order'
 
 export const ordersApi = {
-  createOrder: async (cartId: string, userId?: string): Promise<OrderResponse> => {
-    const response = await apiClient.post<OrderResponse>('/orders/', null, {
+  createOrder: async (cartId: string, userId?: string): Promise<OrderCreationResponse> => {
+    const response = await apiClient.post<OrderCreationResponse>('/orders/', null, {
       params: {
         cart_id: cartId,
         ...(userId ? { user_id: userId } : {}),
       },
     })
+    return response.data
+  },
+
+  getPaymentDetails: async (orderId: string): Promise<RazorpayOrderResponse> => {
+    const response = await apiClient.post<RazorpayOrderResponse>(`/orders/${orderId}/pay`)
+    return response.data
+  },
+
+  verifyPayment: async (payload: PaymentVerificationRequest): Promise<OrderResponse> => {
+    const response = await apiClient.post<OrderResponse>('/orders/verify-payment', payload)
     return response.data
   },
 

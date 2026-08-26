@@ -89,6 +89,21 @@ class OrderResponse(BaseModel):
 
     model_config = {"from_attributes": True}
 
+class RazorpayOrderResponse(BaseModel):
+    id: str
+    amount: int
+    currency: str
+    key_id: str
+
+class OrderCreationResponse(BaseModel):
+    order: OrderResponse
+    razorpay_order: RazorpayOrderResponse
+
+class PaymentVerificationRequest(BaseModel):
+    razorpay_order_id: str
+    razorpay_payment_id: str
+    razorpay_signature: str
+
 class AuditLogBase(BaseModel):
     session_id: str
     user_message: str

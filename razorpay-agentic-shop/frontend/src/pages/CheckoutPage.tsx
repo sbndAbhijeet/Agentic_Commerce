@@ -4,6 +4,7 @@ import { ShieldCheck, CheckCircle2, ArrowRight, ArrowLeft, ShoppingBag, Sparkles
 import { useCart } from '../context/CartContext'
 import { ordersApi } from '../api/orders'
 import type { OrderResponse } from '../types/order'
+import { payWithRazorpay } from '../services/razorpay'
 
 export const CheckoutPage: React.FC = () => {
   const { cart, cartId, totalAmount, clearCartSession } = useCart()
@@ -31,10 +32,11 @@ export const CheckoutPage: React.FC = () => {
     setErrorMessage(null)
 
     try {
-      // Call backend to create order from active cart
-      const order = await ordersApi.createOrder(cartId)
-      setCreatedOrder(order)
-      // Reset cart session for next order
+      // Create the local order and its Razorpay Test Mode order.
+      const result = await ordersApi.createOrder(cartId)
+      const paidOrder = await payWithRazorpay(result.razorpay_order, { name: fullName, email })
+      setCreatedOrder(paidOrder)
+      // Reset the cart only after Razorpay signature verification succeeds.
       await clearCartSession()
     } catch (err: unknown) {
       console.error(err)
@@ -232,7 +234,7 @@ export const CheckoutPage: React.FC = () => {
                 <span className="inline-block w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin" />
               ) : (
                 <>
-                  <span>Confirm and Place Order</span>
+                  <span>Pay Now</span>
                   <ArrowRight className="w-4 h-4" />
                 </>
               )}
