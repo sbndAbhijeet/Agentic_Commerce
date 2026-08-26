@@ -16,9 +16,17 @@ def create_order(cart_id: UUID, user_id: UUID | None = None, db: Session = Depen
     cart = db.query(models.Cart).filter(models.Cart.id == str(cart_id)).first()
     if not cart:
         raise HTTPException(status_code=404, detail="Cart not found")
+    if not cart.items:
+        raise HTTPException(status_code=400, detail="Cannot create an order from an empty cart")
     # Calculate total amount
     total = 0
     for ci in cart.items:
+        if ci.product is None or ci.product.price is None:
+            raise HTTPException(status_code=400, detail=f"Product {ci.product_id} is unavailable")
+        if not ci.product.is_active:
+            raise HTTPException(status_code=400, detail=f"Product {ci.product_id} is inactive")
+        if ci.quantity < 1 or ci.quantity > ci.product.stock:
+            raise HTTPException(status_code=400, detail=f"Cart quantity for product {ci.product_id} is unavailable")
         total += ci.quantity * ci.product.price
     # Create order
     order = models.Order(
@@ -27,8 +35,7 @@ def create_order(cart_id: UUID, user_id: UUID | None = None, db: Session = Depen
         total_amount=total,
     )
     db.add(order)
-    db.commit()
-    db.refresh(order)
+    db.flush()
     # Copy items to order items
     for ci in cart.items:
         order_item = models.OrderItem(
@@ -39,6 +46,7 @@ def create_order(cart_id: UUID, user_id: UUID | None = None, db: Session = Depen
         )
         db.add(order_item)
     db.commit()
+    db.refresh(order)
     # Optionally clear cart items (not required)
     return db.query(models.Order).filter(models.Order.id == order.id).first()
 

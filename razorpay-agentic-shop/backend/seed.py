@@ -1,7 +1,21 @@
 import random
+from urllib.parse import quote
 from app.database import SessionLocal
 from app.models import Product, User, Cart, CartItem, Order, OrderItem
 import app.models as models
+
+
+def product_image_url(category: str, product_number: int) -> str:
+    """Return a stable category-relevant online image for a product card."""
+    category_queries = {
+        "Laptops": "laptop,technology",
+        "Headphones": "headphones,audio",
+        "Accessories": "desk,technology",
+        "Study Essentials": "study,desk",
+        "Smartwatches": "smartwatch,wearable",
+    }
+    query = quote(category_queries.get(category, "technology,gadget"), safe=",")
+    return f"https://loremflickr.com/800/600/{query}?lock={product_number}"
 
 def seed_data():
     db = SessionLocal()
@@ -65,7 +79,7 @@ def seed_data():
     ]
 
     products = []
-    for name, desc, price, cat in products_data:
+    for product_number, (name, desc, price, cat) in enumerate(products_data, start=1):
         # Generate some realistic stock values
         stock = random.randint(10, 150)
         
@@ -76,6 +90,7 @@ def seed_data():
                 price=price,
                 category=cat,
                 stock=stock,
+                image_url=product_image_url(cat, product_number),
                 is_active=True
             )
         )

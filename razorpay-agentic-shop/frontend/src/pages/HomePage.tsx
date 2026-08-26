@@ -1,10 +1,11 @@
 import React, { useEffect, useState } from 'react'
 import { useSearchParams } from 'react-router-dom'
-import { Sparkles, SlidersHorizontal, PackageX, RefreshCw } from 'lucide-react'
+import { Sparkles, SlidersHorizontal, PackageX, RefreshCw, Radio } from 'lucide-react'
 import { productsApi } from '../api/products'
 import type { Product } from '../types/product'
 import { ProductCard } from '../components/common/ProductCard'
 import { LoadingSpinner } from '../components/common/LoadingSpinner'
+import { ChatPanel } from '../components/chat/ChatPanel'
 
 export const HomePage: React.FC = () => {
   const [searchParams, setSearchParams] = useSearchParams()
@@ -15,6 +16,7 @@ export const HomePage: React.FC = () => {
   const [categories, setCategories] = useState<string[]>(['All'])
   const [isLoading, setIsLoading] = useState<boolean>(true)
   const [error, setError] = useState<string | null>(null)
+  const [isChatOpen, setIsChatOpen] = useState(false)
 
   const fetchProducts = async () => {
     setIsLoading(true)
@@ -46,6 +48,12 @@ export const HomePage: React.FC = () => {
   useEffect(() => {
     fetchProducts()
   }, [currentCategory, currentQuery])
+
+  useEffect(() => {
+    const openChat = () => setIsChatOpen(true)
+    window.addEventListener('campusgadgets:open-chat', openChat)
+    return () => window.removeEventListener('campusgadgets:open-chat', openChat)
+  }, [])
 
   const handleCategoryClick = (cat: string) => {
     const params = new URLSearchParams(searchParams)
@@ -89,6 +97,18 @@ export const HomePage: React.FC = () => {
             Explore cutting-edge tech, lifestyle gadgets, and smart accessories backed by Razorpay's seamless payment flow.
           </p>
         </div>
+      </div>
+
+      <div className="mb-6 flex flex-wrap items-center gap-x-4 gap-y-2 rounded-2xl border border-blue-100 bg-blue-50/70 px-4 py-3 text-xs font-semibold text-blue-700 shadow-xs">
+        <div className="flex items-center gap-2">
+          <Radio className="h-4 w-4 animate-pulse text-blue-500" />
+          <span>AI is browsing catalog...</span>
+        </div>
+        <span className="hidden text-blue-200 sm:inline">•</span>
+        <span className="text-blue-600/80">Checking best deals...</span>
+        <span className="hidden text-blue-200 md:inline">•</span>
+        <span className="text-blue-600/80">3 students are shopping right now</span>
+        <span className="ml-auto hidden text-[10px] font-bold uppercase tracking-wider text-blue-400 sm:inline">Live</span>
       </div>
 
       {/* Filter and search bar status */}
@@ -180,12 +200,14 @@ export const HomePage: React.FC = () => {
           )}
         </div>
       ) : (
-        <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-6">
+        <div className="grid grid-cols-1 gap-6 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-3 xl:grid-cols-4">
           {products.map((product) => (
             <ProductCard key={product.id} product={product} />
           ))}
         </div>
       )}
+
+      <ChatPanel embedded isOpen={isChatOpen} onClose={() => setIsChatOpen(false)} />
     </div>
   )
 }

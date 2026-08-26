@@ -1,4 +1,4 @@
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from typing import Optional
 from datetime import datetime
 
@@ -23,7 +23,7 @@ class Product(ProductBase):
     }
 
 
-from typing import List
+from typing import List, Any
 from uuid import UUID
 from decimal import Decimal
 
@@ -43,7 +43,7 @@ class UserResponse(BaseModel):
 
 class CartItemCreate(BaseModel):
     product_id: int
-    quantity: int = 1
+    quantity: int = Field(default=1, ge=1)
 
 class CartItemResponse(BaseModel):
     id: UUID
@@ -86,5 +86,24 @@ class OrderResponse(BaseModel):
     created_at: datetime
     updated_at: datetime
     items: List[OrderItemResponse]
+
+    model_config = {"from_attributes": True}
+
+class AuditLogBase(BaseModel):
+    session_id: str
+    user_message: str
+    agent_response: Optional[str] = None
+    tool_calls: Optional[Any] = None
+    tool_results: Optional[Any] = None
+    reasoning: Optional[str] = None
+    cart_id: Optional[UUID] = None
+    order_id: Optional[UUID] = None
+
+class AuditLogCreate(AuditLogBase):
+    pass
+
+class AuditLogResponse(AuditLogBase):
+    id: UUID
+    created_at: datetime
 
     model_config = {"from_attributes": True}

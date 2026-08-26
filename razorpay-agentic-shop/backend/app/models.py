@@ -1,4 +1,4 @@
-from sqlalchemy import Column, Integer, String, Float, Text, Boolean, DateTime
+from sqlalchemy import Column, Integer, String, Float, Text, Boolean, DateTime, JSON
 from datetime import datetime
 from .database import Base
 from sqlalchemy import ForeignKey, Numeric, UniqueConstraint
@@ -76,3 +76,17 @@ class OrderItem(Base):
 
     order = relationship("Order", back_populates="items")
     product = relationship("Product")
+
+class AuditLog(Base):
+    __tablename__ = "audit_logs"
+
+    id = Column(String, primary_key=True, default=lambda: str(uuid.uuid4()))
+    session_id = Column(String, index=True, nullable=False)
+    user_message = Column(Text, nullable=False)
+    agent_response = Column(Text, nullable=True)
+    tool_calls = Column(JSON, nullable=True)
+    tool_results = Column(JSON, nullable=True)
+    reasoning = Column(Text, nullable=True)
+    cart_id = Column(String, ForeignKey("carts.id"), nullable=True)
+    order_id = Column(String, ForeignKey("orders.id"), nullable=True)
+    created_at = Column(DateTime, default=datetime.utcnow)

@@ -12,6 +12,7 @@ interface CartContextType {
   updateQuantity: (productId: number, quantity: number) => Promise<void>;
   removeFromCart: (cartItemId: string) => Promise<void>;
   refreshCart: () => Promise<void>;
+  syncCart: (nextCartId: string) => Promise<CartResponse>;
   clearCartSession: () => Promise<void>;
 }
 
@@ -68,6 +69,14 @@ export const CartProvider: React.FC<{ children: React.ReactNode }> = ({ children
     } catch (err) {
       console.error('Failed to refresh cart:', err)
     }
+  }
+
+  const syncCart = async (nextCartId: string) => {
+    const data = await cartsApi.getCart(nextCartId)
+    localStorage.setItem(CART_ID_KEY, data.id)
+    setCart(data)
+    setCartId(data.id)
+    return data
   }
 
   const addToCart = async (productId: number, quantity: number = 1) => {
@@ -159,6 +168,7 @@ export const CartProvider: React.FC<{ children: React.ReactNode }> = ({ children
         updateQuantity,
         removeFromCart,
         refreshCart,
+        syncCart,
         clearCartSession,
       }}
     >

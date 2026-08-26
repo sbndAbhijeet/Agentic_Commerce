@@ -5,9 +5,10 @@ import { useCart } from '../../context/CartContext'
 
 interface HeaderProps {
   onOpenCart?: () => void;
+  onOpenChat?: () => void;
 }
 
-export const Header: React.FC<HeaderProps> = ({ onOpenCart }) => {
+export const Header: React.FC<HeaderProps> = ({ onOpenCart, onOpenChat }) => {
   const { totalItems } = useCart()
   const [searchQuery, setSearchQuery] = useState('')
   const navigate = useNavigate()
@@ -81,6 +82,18 @@ export const Header: React.FC<HeaderProps> = ({ onOpenCart }) => {
               <Package className="w-4 h-4" />
               <span className="hidden sm:inline">Orders</span>
             </Link>
+
+            {onOpenChat && (
+              <button
+                type="button"
+                onClick={onOpenChat}
+                className="inline-flex items-center gap-1.5 rounded-xl bg-blue-50 px-3 py-2 text-sm font-semibold text-blue-700 transition-colors hover:bg-blue-100"
+                aria-label="Open CampusGadgets AI Assistant"
+              >
+                <Sparkles className="h-4 w-4" />
+                <span className="hidden sm:inline">Ask AI</span>
+              </button>
+            )}
 
             {/* Cart trigger */}
             <button

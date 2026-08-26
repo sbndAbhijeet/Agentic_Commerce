@@ -56,6 +56,10 @@ def add_or_update_item(
     product = db.query(models.Product).filter(models.Product.id == item_in.product_id).first()
     if not product:
         raise HTTPException(status_code=404, detail="Product not found")
+    if not product.is_active:
+        raise HTTPException(status_code=400, detail="Product is inactive")
+    if product.stock < item_in.quantity:
+        raise HTTPException(status_code=400, detail="Requested quantity exceeds available stock")
     cart_item = (
         db.query(models.CartItem)
         .filter(models.CartItem.cart_id == str(cart_id), models.CartItem.product_id == item_in.product_id)
