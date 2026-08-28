@@ -1,11 +1,12 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from . import models
-from .database import engine
-from .routers import products, carts, orders, chat
+from .database import engine, ensure_auth_columns
+from .routers import products, carts, orders, chat, audit_logs, auth, merchant
 
 # Create database tables
 models.Base.metadata.create_all(bind=engine)
+ensure_auth_columns()
 
 app = FastAPI(title="Ecommerce Catalog API")
 
@@ -29,6 +30,9 @@ app.include_router(products.router)
 app.include_router(carts.router)
 app.include_router(orders.router)
 app.include_router(chat.router)
+app.include_router(audit_logs.router)
+app.include_router(auth.router)
+app.include_router(merchant.router)
 
 @app.get("/health")
 def health_check():

@@ -9,6 +9,8 @@ from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
 from app.database import get_db
+from app import models
+from app.core.security import get_current_active_user
 from app.services.agent_service import run_agent
 
 router = APIRouter(prefix="/api/v1/chat", tags=["chat"])
@@ -36,10 +38,15 @@ class ChatResponse(BaseModel):
     cart_id: str | None = None
     order_id: str | None = None
     audit_id: str | None = None
+    decision_log: dict[str, object] | None = None
 
 
 @router.post("", response_model=ChatResponse)
-def chat(request: ChatRequest, db: Session = Depends(get_db)) -> ChatResponse:
+def chat(
+    request: ChatRequest,
+    current_user: models.User = Depends(get_current_active_user),
+    db: Session = Depends(get_db),
+) -> ChatResponse:
     """Send a message to the CampusGadgets shopping assistant."""
     session_id = str(request.session_id or uuid4())
     cart_id = str(request.cart_id) if request.cart_id else None
@@ -48,6 +55,7 @@ def chat(request: ChatRequest, db: Session = Depends(get_db)) -> ChatResponse:
         user_message=request.message,
         session_id=session_id,
         cart_id=cart_id,
+        user_id=current_user.id,
     )
 
     order = result.get("order")
@@ -65,4 +73,5 @@ def chat(request: ChatRequest, db: Session = Depends(get_db)) -> ChatResponse:
         cart_id=updated_cart_id,
         order_id=order_id,
         audit_id=str(result["audit_id"]) if result.get("audit_id") else None,
+        decision_log=result.get("decision_log"),
     )

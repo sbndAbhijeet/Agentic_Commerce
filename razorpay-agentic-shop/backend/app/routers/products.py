@@ -7,6 +7,7 @@ from typing import List, Optional
 from app import models, schemas
 # pyrefly: ignore [missing-import]
 from app.database import get_db
+from app.core.security import get_current_active_user
 
 router = APIRouter(
     prefix="/api/v1/products",
@@ -51,8 +52,13 @@ def read_product(product_id: int, db: Session = Depends(get_db)):
     return product
 
 @router.post("/", response_model=schemas.Product, status_code=201)
-def create_product(product: schemas.ProductCreate, db: Session = Depends(get_db)):
-    db_product = models.Product(**product.model_dump())
+def create_product(
+    product: schemas.ProductCreate,
+    current_user: models.User = Depends(get_current_active_user),
+    db: Session = Depends(get_db),
+):
+    merchant_id = current_user.id if current_user.role == "merchant" else None
+    db_product = models.Product(**product.model_dump(), merchant_id=merchant_id)
     db.add(db_product)
     db.commit()
     db.refresh(db_product)

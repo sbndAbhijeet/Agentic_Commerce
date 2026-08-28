@@ -1,7 +1,7 @@
 from sqlalchemy import Column, Integer, String, Float, Text, Boolean, DateTime, JSON
 from datetime import datetime
 from .database import Base
-from sqlalchemy import ForeignKey, Numeric, UniqueConstraint
+from sqlalchemy import CheckConstraint, ForeignKey, Numeric, UniqueConstraint
 from sqlalchemy.orm import relationship
 import uuid
 
@@ -9,6 +9,7 @@ class Product(Base):
     __tablename__ = "products"
 
     id = Column(Integer, primary_key=True, index=True)
+    merchant_id = Column(String, ForeignKey("users.id"), nullable=True, index=True)
     name = Column(String, index=True)
     description = Column(Text, nullable=True)
     price = Column(Float) # Storing price as float (can also be Decimal or Integer for paise)
@@ -18,22 +19,31 @@ class Product(Base):
     is_active = Column(Boolean, default=True)
     created_at = Column(DateTime, default=datetime.utcnow)
 
+    merchant = relationship("User", back_populates="products")
+
 
 class User(Base):
     __tablename__ = "users"
+    __table_args__ = (
+        CheckConstraint("role IN ('customer', 'merchant')", name="ck_users_role"),
+    )
+
     id = Column(String, primary_key=True, default=lambda: str(uuid.uuid4()))
     email = Column(String, unique=True, index=True, nullable=False)
+    hashed_password = Column(String, nullable=False)
     full_name = Column(String, nullable=True)
+    role = Column(String, default="customer", nullable=False)
     is_active = Column(Boolean, default=True)
     created_at = Column(DateTime, default=datetime.utcnow)
 
     carts = relationship("Cart", back_populates="user")
     orders = relationship("Order", back_populates="user")
+    products = relationship("Product", back_populates="merchant")
 
 class Cart(Base):
     __tablename__ = "carts"
     id = Column(String, primary_key=True, default=lambda: str(uuid.uuid4()))
-    user_id = Column(String, ForeignKey("users.id"), nullable=True)
+    user_id = Column(String, ForeignKey("users.id"), nullable=False)
     created_at = Column(DateTime, default=datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
@@ -55,7 +65,7 @@ class CartItem(Base):
 class Order(Base):
     __tablename__ = "orders"
     id = Column(String, primary_key=True, default=lambda: str(uuid.uuid4()))
-    user_id = Column(String, ForeignKey("users.id"), nullable=True)
+    user_id = Column(String, ForeignKey("users.id"), nullable=False)
     status = Column(String, default="pending")
     total_amount = Column(Numeric(10, 2))
     razorpay_order_id = Column(String, nullable=True)
@@ -82,6 +92,7 @@ class AuditLog(Base):
 
     id = Column(String, primary_key=True, default=lambda: str(uuid.uuid4()))
     session_id = Column(String, index=True, nullable=False)
+    user_id = Column(String, ForeignKey("users.id"), index=True, nullable=True)
     user_message = Column(Text, nullable=False)
     agent_response = Column(Text, nullable=True)
     tool_calls = Column(JSON, nullable=True)

@@ -1,7 +1,7 @@
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Response, status
 from sqlalchemy.orm import Session
 from uuid import UUID
-from typing import List, Optional
+from typing import List
 from decimal import Decimal
 
 # pyrefly: ignore [missing-import]
@@ -10,13 +10,19 @@ from app import models, schemas
 from app.database import get_db
 from app.core.config import settings
 from app.services.razorpay_service import create_razorpay_order, verify_payment_signature
+from app.services.receipt_service import build_receipt_pdf
+from app.core.security import get_current_active_user
 
 router = APIRouter(prefix="/api/v1/orders", tags=["orders"])
 
 @router.post("/", response_model=schemas.OrderCreationResponse, status_code=status.HTTP_201_CREATED)
-def create_order(cart_id: UUID, user_id: UUID | None = None, db: Session = Depends(get_db)):
+def create_order(
+    cart_id: UUID,
+    current_user: models.User = Depends(get_current_active_user),
+    db: Session = Depends(get_db),
+):
     # Retrieve cart
-    cart = db.query(models.Cart).filter(models.Cart.id == str(cart_id)).first()
+    cart = db.query(models.Cart).filter(models.Cart.id == str(cart_id), models.Cart.user_id == current_user.id).first()
     if not cart:
         raise HTTPException(status_code=404, detail="Cart not found")
     if not cart.items:
@@ -33,7 +39,7 @@ def create_order(cart_id: UUID, user_id: UUID | None = None, db: Session = Depen
         total += ci.quantity * ci.product.price
     # Create order
     order = models.Order(
-        user_id=str(user_id) if user_id else None,
+        user_id=current_user.id,
         status="pending",
         total_amount=total,
     )
@@ -86,9 +92,9 @@ def create_order(cart_id: UUID, user_id: UUID | None = None, db: Session = Depen
     }
 
 @router.post("/{order_id}/pay", response_model=schemas.RazorpayOrderResponse)
-def get_payment_details(order_id: UUID, db: Session = Depends(get_db)):
+def get_payment_details(order_id: UUID, current_user: models.User = Depends(get_current_active_user), db: Session = Depends(get_db)):
     """Return the safe Razorpay Checkout payload for a local order."""
-    order = db.query(models.Order).filter(models.Order.id == str(order_id)).first()
+    order = db.query(models.Order).filter(models.Order.id == str(order_id), models.Order.user_id == current_user.id).first()
     if not order:
         raise HTTPException(status_code=404, detail="Order not found")
     if not order.razorpay_order_id:
@@ -106,11 +112,11 @@ def get_payment_details(order_id: UUID, db: Session = Depends(get_db)):
     }
 
 @router.post("/verify-payment", response_model=schemas.OrderResponse)
-def verify_payment(payload: schemas.PaymentVerificationRequest, db: Session = Depends(get_db)):
+def verify_payment(payload: schemas.PaymentVerificationRequest, current_user: models.User = Depends(get_current_active_user), db: Session = Depends(get_db)):
     """Verify a Razorpay Test Mode payment and mark the matching order paid."""
     order = (
         db.query(models.Order)
-        .filter(models.Order.razorpay_order_id == payload.razorpay_order_id)
+        .filter(models.Order.razorpay_order_id == payload.razorpay_order_id, models.Order.user_id == current_user.id)
         .first()
     )
     if not order:
@@ -131,15 +137,33 @@ def verify_payment(payload: schemas.PaymentVerificationRequest, db: Session = De
     return order
 
 @router.get("/{order_id}", response_model=schemas.OrderResponse)
-def get_order(order_id: UUID, db: Session = Depends(get_db)):
-    order = db.query(models.Order).filter(models.Order.id == str(order_id)).first()
+def get_order(order_id: UUID, current_user: models.User = Depends(get_current_active_user), db: Session = Depends(get_db)):
+    order = db.query(models.Order).filter(models.Order.id == str(order_id), models.Order.user_id == current_user.id).first()
     if not order:
         raise HTTPException(status_code=404, detail="Order not found")
     return order
 
+@router.get("/{order_id}/receipt.pdf")
+def download_receipt(order_id: UUID, current_user: models.User = Depends(get_current_active_user), db: Session = Depends(get_db)):
+    """Download the receipt for a successfully paid order."""
+    order = db.query(models.Order).filter(models.Order.id == str(order_id), models.Order.user_id == current_user.id).first()
+    if not order:
+        raise HTTPException(status_code=404, detail="Order not found")
+    if order.status != "paid":
+        raise HTTPException(status_code=409, detail="Receipt is available after payment is verified")
+    if not order.razorpay_order_id or not order.razorpay_payment_id:
+        raise HTTPException(status_code=409, detail="Payment details are incomplete")
+
+    pdf = build_receipt_pdf(order)
+    return Response(
+        content=pdf,
+        media_type="application/pdf",
+        headers={"Content-Disposition": f'attachment; filename="CampusGadgets-Receipt-{order.id}.pdf"'},
+    )
+
 @router.get("/", response_model=List[schemas.OrderResponse])
-def list_orders(user_id: Optional[UUID] = None, db: Session = Depends(get_db)):
-    query = db.query(models.Order)
-    if user_id:
-        query = query.filter(models.Order.user_id == str(user_id))
-    return query.all()
+def list_orders(
+    current_user: models.User = Depends(get_current_active_user),
+    db: Session = Depends(get_db),
+):
+    return db.query(models.Order).filter(models.Order.user_id == current_user.id).all()

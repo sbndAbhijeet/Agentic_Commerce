@@ -52,6 +52,7 @@ def run_agent(
     user_message: str,
     session_id: str,
     cart_id: str | None = None,
+    user_id: str | None = None,
 ) -> dict[str, Any]:
     """Process a shopping request through OpenRouter and the provided tools.
 
@@ -73,17 +74,17 @@ def run_agent(
 
     if not isinstance(user_message, str) or not user_message.strip():
         error = "User message must not be empty."
-        audit_id = _save_audit(db, session_id, user_message, answer, tool_calls, tool_results, error, cart_id)
-        return {"error": error, "audit_id": audit_id}
+        audit_id = _save_audit(db, session_id, user_message, answer, tool_calls, tool_results, error, cart_id, user_id)
+        return {"error": error, "audit_id": audit_id, "decision_log": _build_decision_log(tool_calls, tool_results)}
     if not isinstance(session_id, str) or not session_id.strip():
         return {"error": "Session ID must not be empty."}
     if not _api_key_configured():
         error = "OPENROUTER_API_KEY is not configured."
-        audit_id = _save_audit(db, session_id, user_message, answer, tool_calls, tool_results, error, cart_id)
-        return {"error": error, "audit_id": audit_id}
+        audit_id = _save_audit(db, session_id, user_message, answer, tool_calls, tool_results, error, cart_id, user_id)
+        return {"error": error, "audit_id": audit_id, "decision_log": _build_decision_log(tool_calls, tool_results)}
 
     messages: list[dict[str, Any]] = [{"role": "system", "content": SYSTEM_PROMPT}]
-    messages.extend(_load_conversation_context(db, session_id))
+    messages.extend(_load_conversation_context(db, session_id, user_id))
     messages.append(
         {
             "role": "user",
@@ -125,7 +126,7 @@ def run_agent(
                     "arguments": arguments,
                 }
                 tool_calls.append(call_record)
-                result = _execute_tool(db, call_name, arguments, cart_id)
+                result = _execute_tool(db, call_name, arguments, cart_id, user_id)
                 tool_results.append({"id": tool_call.id, "name": call_name, "result": result})
                 messages.append(
                     {
@@ -156,8 +157,9 @@ def run_agent(
         error = _friendly_provider_error(exc)
         return_value = {"error": error}
 
-    audit_id = _save_audit(db, session_id, user_message, answer, tool_calls, tool_results, error, cart_id)
+    audit_id = _save_audit(db, session_id, user_message, answer, tool_calls, tool_results, error, cart_id, user_id)
     return_value["audit_id"] = audit_id
+    return_value["decision_log"] = _build_decision_log(tool_calls, tool_results)
     return return_value
 
 
@@ -177,12 +179,17 @@ def _build_user_context(user_message: str, cart_id: str | None) -> str:
     return f"Current cart_id: {cart_id}\n\nShopper message:\n{user_message}"
 
 
-def _load_conversation_context(db: Session, session_id: str) -> list[dict[str, str]]:
+def _load_conversation_context(
+    db: Session, session_id: str, user_id: str | None
+) -> list[dict[str, str]]:
     """Load a compact recent-turn summary for references such as 'add both'."""
     try:
+        query = db.query(models.AuditLog).filter(
+            models.AuditLog.session_id == session_id,
+            models.AuditLog.user_id == user_id,
+        )
         audit_logs = (
-            db.query(models.AuditLog)
-            .filter(models.AuditLog.session_id == session_id)
+            query
             .order_by(models.AuditLog.created_at.desc())
             .limit(6)
             .all()
@@ -229,6 +236,7 @@ def _execute_tool(
     name: str,
     arguments: dict[str, Any],
     cart_id: str | None,
+    user_id: str | None = None,
 ) -> dict[str, Any]:
     """Execute only registered tools, injecting request context where needed."""
     tool = TOOL_FUNCTIONS.get(name)
@@ -238,6 +246,7 @@ def _execute_tool(
     if name in {"add_to_cart", "view_cart", "create_order"}:
         arguments = dict(arguments)
         arguments.setdefault("cart_id", cart_id)
+        arguments["user_id"] = user_id
         if not arguments.get("cart_id"):
             return {"error": "cart_id is required for this tool."}
 
@@ -285,6 +294,44 @@ def _add_updated_data(response: dict[str, Any], tool_results: list[dict[str, Any
             response["order"] = result["order"]
 
 
+def _build_decision_log(
+    tool_calls: list[dict[str, Any]],
+    tool_results: list[dict[str, Any]],
+) -> dict[str, Any]:
+    """Build a compact, user-safe explanation of the agent's tool activity."""
+    summary_parts: list[str] = []
+    results_by_id = {entry.get("id"): entry.get("result", {}) for entry in tool_results}
+
+    for call in tool_calls:
+        name = call.get("name", "unknown tool")
+        result = results_by_id.get(call.get("id"), {})
+        if result.get("error"):
+            summary_parts.append(f"{name} → Could not complete")
+        elif name == "search_products":
+            count = result.get("count", len(result.get("products", [])))
+            summary_parts.append(f"Searched products → Found {count}")
+        elif name == "get_product":
+            summary_parts.append("Looked up product → Found details")
+        elif name == "add_to_cart":
+            quantity = call.get("arguments", {}).get("quantity", 1)
+            summary_parts.append(f"Added {quantity} item{'s' if quantity != 1 else ''} to cart")
+        elif name == "view_cart":
+            cart = result.get("cart", {})
+            summary_parts.append(f"Viewed cart → {cart.get('item_count', len(cart.get('items', [])))} item(s)")
+        elif name == "create_order":
+            summary_parts.append("Created order")
+        else:
+            summary_parts.append(name.replace("_", " ").capitalize())
+
+    return {
+        "tools": [
+            {"name": call.get("name", "unknown tool"), "arguments": call.get("arguments", {})}
+            for call in tool_calls
+        ],
+        "summary": " → ".join(summary_parts) if summary_parts else "No tools were needed.",
+    }
+
+
 def _save_audit(
     db: Session,
     session_id: str,
@@ -294,6 +341,7 @@ def _save_audit(
     tool_results: list[dict[str, Any]],
     error: str | None,
     cart_id: str | None,
+    user_id: str | None,
 ) -> str | None:
     """Persist the turn without masking the original agent result on failure."""
     try:
@@ -305,6 +353,7 @@ def _save_audit(
                 break
         audit_log = models.AuditLog(
             session_id=session_id,
+            user_id=user_id,
             user_message=user_message,
             agent_response=answer or error,
             tool_calls=tool_calls or None,

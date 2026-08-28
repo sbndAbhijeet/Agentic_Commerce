@@ -121,6 +121,7 @@ def add_to_cart(
     cart_id: str,
     product_id: str,
     quantity: int = 1,
+    user_id: str | None = None,
 ) -> dict[str, Any]:
     """Add a product to the cart, or update its quantity if already present.
 
@@ -144,7 +145,7 @@ def add_to_cart(
         if not isinstance(quantity, int) or isinstance(quantity, bool) or quantity < 1:
             return {"error": "Quantity must be a positive integer."}
 
-        cart = db.query(models.Cart).filter(models.Cart.id == cart_id).first()
+        cart = db.query(models.Cart).filter(models.Cart.id == cart_id, models.Cart.user_id == user_id).first()
         if not cart:
             return {"error": f"Cart {cart_id} not found."}
 
@@ -198,7 +199,7 @@ def add_to_cart(
 
 
 
-def view_cart(db: Session, cart_id: str) -> dict[str, Any]:
+def view_cart(db: Session, cart_id: str, user_id: str | None = None) -> dict[str, Any]:
     """Return the current state of a cart including all items and the total.
 
     Args:
@@ -210,7 +211,7 @@ def view_cart(db: Session, cart_id: str) -> dict[str, Any]:
         or an "error" key.
     """
     try:
-        cart = db.query(models.Cart).filter(models.Cart.id == cart_id).first()
+        cart = db.query(models.Cart).filter(models.Cart.id == cart_id, models.Cart.user_id == user_id).first()
         if not cart:
             return {"error": f"Cart {cart_id} not found."}
 
@@ -223,7 +224,7 @@ def view_cart(db: Session, cart_id: str) -> dict[str, Any]:
 def create_order(
     db: Session,
     cart_id: str,
-    user_id: str | None = None,
+    user_id: str,
 ) -> dict[str, Any]:
     """Create a new pending order from an existing cart.
 
@@ -241,7 +242,7 @@ def create_order(
         or an "error" key.
     """
     try:
-        cart = db.query(models.Cart).filter(models.Cart.id == cart_id).first()
+        cart = db.query(models.Cart).filter(models.Cart.id == cart_id, models.Cart.user_id == user_id).first()
         if not cart:
             return {"error": f"Cart {cart_id} not found."}
 
@@ -492,10 +493,10 @@ TOOLS_SCHEMA: list[dict[str, Any]] = [
                     },
                     "user_id": {
                         "type": "string",
-                        "description": "Optional UUID of the user placing the order.",
+                        "description": "UUID of the authenticated user placing the order.",
                     },
                 },
-                "required": ["cart_id"],
+                "required": ["cart_id", "user_id"],
             },
         },
     },

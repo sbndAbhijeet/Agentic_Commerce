@@ -2,6 +2,7 @@ import random
 from urllib.parse import quote
 from app.database import SessionLocal
 from app.models import Product, User, Cart, CartItem, Order, OrderItem
+from app.core.security import hash_password
 import app.models as models
 
 
@@ -17,14 +18,31 @@ def product_image_url(category: str, product_number: int) -> str:
     query = quote(category_queries.get(category, "technology,gadget"), safe=",")
     return f"https://loremflickr.com/800/600/{query}?lock={product_number}"
 
+
+def reset_seed_data(db):
+    """Clear seeded ecommerce records in dependency-safe order."""
+    db.query(models.AuditLog).delete()
+    db.query(OrderItem).delete()
+    db.query(CartItem).delete()
+    db.query(Order).delete()
+    db.query(Cart).delete()
+    db.query(Product).delete()
+    db.query(User).delete()
+    db.commit()
+
+
 def seed_data():
     db = SessionLocal()
     
     # Check if we already have data
-    if db.query(Product).first():
-        print("Database already seeded! Dropping existing products for a fresh seed...")
-        db.query(Product).delete()
-        db.commit()
+    if (
+        db.query(Product).first()
+        or db.query(User).first()
+        or db.query(Cart).first()
+        or db.query(Order).first()
+    ):
+        print("Database already seeded! Resetting existing seeded data for a fresh seed...")
+        reset_seed_data(db)
 
     products_data = [
         # Laptops
@@ -78,13 +96,42 @@ def seed_data():
         ("CampusWatch Lite", "Entry-level smartwatch with essential tracking features.", 1199, "Smartwatches"),
     ]
 
+    # Create sample users
+    merchant_user = User(
+        email="merchant@campusgadgets.com",
+        hashed_password=hash_password("merchant123"),
+        full_name="Campus Gadgets Admin",
+        role="merchant",
+        is_active=True,
+    )
+    user1 = User(
+        email="alice@example.com",
+        hashed_password=hash_password("alice-password"),
+        full_name="Alice",
+        role="customer",
+        is_active=True,
+    )
+    user2 = User(
+        email="bob@example.com",
+        hashed_password=hash_password("bob-password"),
+        full_name="Bob",
+        role="customer",
+        is_active=True,
+    )
+    db.add_all([merchant_user, user1, user2])
+    db.commit()
+    db.refresh(merchant_user)
+    db.refresh(user1)
+    db.refresh(user2)
+
     products = []
     for product_number, (name, desc, price, cat) in enumerate(products_data, start=1):
         # Generate some realistic stock values
         stock = random.randint(10, 150)
-        
+
         products.append(
             Product(
+                merchant_id=merchant_user.id,
                 name=name,
                 description=desc,
                 price=price,
@@ -98,13 +145,6 @@ def seed_data():
     db.add_all(products)
     db.commit()
     print(f"Successfully seeded database with {len(products)} CampusGadgets products.")
-    # Create sample users
-    user1 = User(email="alice@example.com", full_name="Alice", is_active=True)
-    user2 = User(email="bob@example.com", full_name="Bob", is_active=True)
-    db.add_all([user1, user2])
-    db.commit()
-    db.refresh(user1)
-    db.refresh(user2)
 
     # Create a sample cart for user1
     cart = Cart(user_id=user1.id)
@@ -136,7 +176,7 @@ def seed_data():
         db.add(order_item)
     db.commit()
 
-    print("Sample users, cart, and order created.")
+    print("Sample merchant, users, cart, and order created.")
     db.close()
 
 if __name__ == "__main__":

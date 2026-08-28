@@ -1,6 +1,5 @@
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
-from typing import List
 from uuid import UUID
 from decimal import Decimal
 
@@ -8,6 +7,7 @@ from decimal import Decimal
 from app import models, schemas
 # pyrefly: ignore [missing-import]
 from app.database import get_db
+from app.core.security import get_current_active_user
 
 router = APIRouter(prefix="/api/v1/carts", tags=["carts"])
 
@@ -28,8 +28,11 @@ def _format_cart_response(cart: models.Cart) -> schemas.CartResponse:
 
 
 @router.post("/", response_model=schemas.CartResponse, status_code=status.HTTP_201_CREATED)
-def create_cart(user_id: UUID | None = None, db: Session = Depends(get_db)):
-    cart = models.Cart(user_id=str(user_id) if user_id else None)
+def create_cart(
+    current_user: models.User = Depends(get_current_active_user),
+    db: Session = Depends(get_db),
+):
+    cart = models.Cart(user_id=current_user.id)
     db.add(cart)
     db.commit()
     db.refresh(cart)
@@ -37,8 +40,8 @@ def create_cart(user_id: UUID | None = None, db: Session = Depends(get_db)):
 
 
 @router.get("/{cart_id}", response_model=schemas.CartResponse)
-def get_cart(cart_id: UUID, db: Session = Depends(get_db)):
-    cart = db.query(models.Cart).filter(models.Cart.id == str(cart_id)).first()
+def get_cart(cart_id: UUID, current_user: models.User = Depends(get_current_active_user), db: Session = Depends(get_db)):
+    cart = db.query(models.Cart).filter(models.Cart.id == str(cart_id), models.Cart.user_id == current_user.id).first()
     if not cart:
         raise HTTPException(status_code=404, detail="Cart not found")
     return _format_cart_response(cart)
@@ -48,9 +51,10 @@ def get_cart(cart_id: UUID, db: Session = Depends(get_db)):
 def add_or_update_item(
     cart_id: UUID,
     item_in: schemas.CartItemCreate,
+    current_user: models.User = Depends(get_current_active_user),
     db: Session = Depends(get_db),
 ):
-    cart = db.query(models.Cart).filter(models.Cart.id == str(cart_id)).first()
+    cart = db.query(models.Cart).filter(models.Cart.id == str(cart_id), models.Cart.user_id == current_user.id).first()
     if not cart:
         raise HTTPException(status_code=404, detail="Cart not found")
     product = db.query(models.Product).filter(models.Product.id == item_in.product_id).first()
@@ -78,8 +82,8 @@ def add_or_update_item(
 
 
 @router.delete("/{cart_id}/items/{product_id}", response_model=schemas.CartResponse)
-def delete_item(cart_id: UUID, product_id: UUID, db: Session = Depends(get_db)):
-    cart = db.query(models.Cart).filter(models.Cart.id == str(cart_id)).first()
+def delete_item(cart_id: UUID, product_id: UUID, current_user: models.User = Depends(get_current_active_user), db: Session = Depends(get_db)):
+    cart = db.query(models.Cart).filter(models.Cart.id == str(cart_id), models.Cart.user_id == current_user.id).first()
     if not cart:
         raise HTTPException(status_code=404, detail="Cart not found")
     cart_item = (

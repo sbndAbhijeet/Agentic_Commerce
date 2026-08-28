@@ -1,5 +1,5 @@
 from pydantic import BaseModel, Field
-from typing import Optional
+from typing import Literal, Optional
 from datetime import datetime
 
 class ProductBase(BaseModel):
@@ -16,6 +16,7 @@ class ProductCreate(ProductBase):
 
 class Product(ProductBase):
     id: int
+    merchant_id: Optional[str] = None
     created_at: datetime
 
     model_config = {
@@ -29,17 +30,37 @@ from decimal import Decimal
 
 class UserCreate(BaseModel):
     email: str
+    password: str
     full_name: Optional[str] = None
+    role: Literal["customer", "merchant"] = "customer"
     is_active: bool = True
 
 class UserResponse(BaseModel):
     id: UUID
     email: str
     full_name: Optional[str] = None
+    role: Literal["customer", "merchant"]
     is_active: bool
     created_at: datetime
 
     model_config = {"from_attributes": True}
+
+
+class SignupRequest(BaseModel):
+    email: str
+    password: str
+    full_name: Optional[str] = None
+
+
+class LoginRequest(BaseModel):
+    email: str
+    password: str
+
+
+class AuthResponse(BaseModel):
+    access_token: str
+    token_type: str = "bearer"
+    user: UserResponse
 
 class CartItemCreate(BaseModel):
     product_id: int
@@ -122,3 +143,35 @@ class AuditLogResponse(AuditLogBase):
     created_at: datetime
 
     model_config = {"from_attributes": True}
+
+
+class MerchantRecentOrder(BaseModel):
+    order_id: UUID
+    status: str
+    item_count: int
+    total_amount: Decimal
+    created_at: datetime
+
+
+class MerchantTopProduct(BaseModel):
+    product_id: int
+    name: str
+    units_sold: int
+    revenue: Decimal
+    stock: int
+    image_url: Optional[str] = None
+
+
+class MerchantDashboardResponse(BaseModel):
+    total_orders: int
+    total_revenue: Decimal
+    total_products: int
+    low_stock_count: int
+    recent_orders: List[MerchantRecentOrder]
+    top_selling_products: List[MerchantTopProduct]
+
+
+class MerchantInsightsResponse(BaseModel):
+    summary: str
+    recommendations: List[str]
+    dashboard: MerchantDashboardResponse
