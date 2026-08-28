@@ -1,6 +1,7 @@
 import React, { useEffect, useRef, useState } from 'react'
-import { Bot, Check, Send, ShoppingCart, Sparkles, User, X } from 'lucide-react'
+import { Bot, Brain, Check, ChevronDown, Maximize2, Minimize2, Send, ShoppingCart, Sparkles, User, X } from 'lucide-react'
 import { sendChatMessage } from '../../api/chat'
+import type { DecisionLog } from '../../api/chat'
 import { ordersApi } from '../../api/orders'
 import { useCart } from '../../context/CartContext'
 import { payWithRazorpay } from '../../services/razorpay'
@@ -18,19 +19,51 @@ interface ChatMessage {
   role: 'user' | 'assistant'
   content: string
   orderId?: string | null
+  decisionLog?: DecisionLog | null
 }
 
 const SESSION_ID_KEY = 'campusgadgets_chat_session_id'
+const CHAT_STATE_KEY = 'campusgadgets_chat_state'
+
+interface PersistedChatState {
+  messages: ChatMessage[]
+  sessionId: string
+  cartId: string | null
+}
+
+const welcomeMessage = () => createMessage(
+  'assistant',
+  'Hi! I’m your CampusGadgets assistant. Tell me what you’re looking for and I’ll help you find the right gear.',
+)
+
+const loadPersistedChat = (): PersistedChatState | null => {
+  try {
+    const raw = localStorage.getItem(CHAT_STATE_KEY)
+    if (!raw) return null
+    const parsed = JSON.parse(raw) as Partial<PersistedChatState>
+    if (!parsed.sessionId || !Array.isArray(parsed.messages) || parsed.messages.length === 0) return null
+    return {
+      messages: parsed.messages,
+      sessionId: parsed.sessionId,
+      cartId: parsed.cartId || null,
+    }
+  } catch {
+    localStorage.removeItem(CHAT_STATE_KEY)
+    return null
+  }
+}
 
 const createMessage = (
   role: ChatMessage['role'],
   content: string,
   orderId?: string | null,
+  decisionLog?: DecisionLog | null,
 ): ChatMessage => ({
   id: `${role}-${Date.now()}-${Math.random().toString(36).slice(2)}`,
   role,
   content,
   orderId,
+  decisionLog,
 })
 
 export const ChatPanel: React.FC<ChatPanelProps> = ({
@@ -41,33 +74,47 @@ export const ChatPanel: React.FC<ChatPanelProps> = ({
   embedded = false,
 }) => {
   const { cartId: activeCartId, syncCart, refreshCart, totalItems, clearCartSession } = useCart()
-  const [messages, setMessages] = useState<ChatMessage[]>([
-    createMessage(
-      'assistant',
-      'Hi! I’m your CampusGadgets assistant. Tell me what you’re looking for and I’ll help you find the right gear.',
-    ),
-  ])
+  const [persistedChat] = useState(loadPersistedChat)
+  const [messages, setMessages] = useState<ChatMessage[]>(() => persistedChat?.messages || [welcomeMessage()])
   const [input, setInput] = useState('')
   const [isLoading, setIsLoading] = useState(false)
   const [cartNotice, setCartNotice] = useState<string | null>(null)
   const [liveStatus, setLiveStatus] = useState('AI is warming up')
   const [isLivePreview, setIsLivePreview] = useState(true)
   const [sessionId, setSessionId] = useState<string>(() => {
-    const existingSessionId = providedSessionId || localStorage.getItem(SESSION_ID_KEY)
+    const existingSessionId = providedSessionId || persistedChat?.sessionId || localStorage.getItem(SESSION_ID_KEY)
     if (existingSessionId) return existingSessionId
 
     const newSessionId = crypto.randomUUID()
     localStorage.setItem(SESSION_ID_KEY, newSessionId)
     return newSessionId
   })
+  const [isFullscreen, setIsFullscreen] = useState(false)
+  const [wasHistoryRestored, setWasHistoryRestored] = useState(() => Boolean(persistedChat && persistedChat.messages.length > 1))
+  const [storedCartId, setStoredCartId] = useState<string | null>(() => persistedChat?.cartId || null)
   const messagesEndRef = useRef<HTMLDivElement>(null)
   const inputRef = useRef<HTMLTextAreaElement>(null)
 
-  const cartId = providedCartId ?? activeCartId
+  const cartId = providedCartId ?? activeCartId ?? storedCartId
+
+  useEffect(() => {
+    localStorage.setItem(SESSION_ID_KEY, sessionId)
+    localStorage.setItem(CHAT_STATE_KEY, JSON.stringify({ messages, sessionId, cartId: cartId || null }))
+  }, [cartId, messages, sessionId])
+
+  useEffect(() => {
+    if (activeCartId !== null) setStoredCartId(activeCartId)
+  }, [activeCartId])
 
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' })
   }, [messages, isLoading])
+
+  useEffect(() => {
+    if (!wasHistoryRestored) return
+    const timeout = window.setTimeout(() => setWasHistoryRestored(false), 3200)
+    return () => window.clearTimeout(timeout)
+  }, [wasHistoryRestored])
 
   useEffect(() => {
     if (isOpen) inputRef.current?.focus()
@@ -106,6 +153,7 @@ export const ChatPanel: React.FC<ChatPanelProps> = ({
       })
       setSessionId(response.session_id)
       localStorage.setItem(SESSION_ID_KEY, response.session_id)
+      setStoredCartId(response.cart_id || cartId)
       let updatedCartItemCount = previousItemCount
       if (response.cart_id) {
         const updatedCart = await syncCart(response.cart_id)
@@ -119,7 +167,7 @@ export const ChatPanel: React.FC<ChatPanelProps> = ({
       }
       setMessages((current) => [
         ...current,
-        createMessage('assistant', response.reply, response.order_id),
+        createMessage('assistant', response.reply, response.order_id, response.decision_log),
       ])
 
       if (response.order_id) {
@@ -127,6 +175,7 @@ export const ChatPanel: React.FC<ChatPanelProps> = ({
           const paymentDetails = await ordersApi.getPaymentDetails(response.order_id)
           await payWithRazorpay(paymentDetails)
           await clearCartSession()
+          setStoredCartId(null)
           setMessages((current) => [
             ...current,
             createMessage('assistant', 'Payment successful! Your order is confirmed and your cart has been cleared.'),
@@ -164,7 +213,7 @@ export const ChatPanel: React.FC<ChatPanelProps> = ({
 
   const panel = (
     <section
-      className={`flex h-full w-full flex-col bg-white shadow-2xl ${embedded ? 'rounded-3xl border border-slate-200/80' : 'sm:rounded-3xl sm:border sm:border-slate-200/80'}`}
+      className={`flex h-full w-full flex-col bg-white shadow-2xl transition-all duration-300 ease-out ${isFullscreen ? 'rounded-3xl border border-slate-200/80' : embedded ? 'rounded-3xl border border-slate-200/80' : 'sm:rounded-3xl sm:border sm:border-slate-200/80'}`}
       aria-label="CampusGadgets AI Assistant"
     >
       <header className="flex shrink-0 items-center justify-between border-b border-slate-100 bg-white px-5 py-4 sm:rounded-t-3xl">
@@ -185,17 +234,36 @@ export const ChatPanel: React.FC<ChatPanelProps> = ({
             </div>
           </div>
         </div>
-        {onClose && (
-          <button type="button" onClick={onClose} className="rounded-xl p-2 text-slate-400 transition-colors hover:bg-slate-100 hover:text-slate-700" aria-label="Close assistant">
-            <X className="h-5 w-5" />
+        <div className="flex items-center gap-1">
+          <button
+            type="button"
+            onClick={() => setIsFullscreen((current) => !current)}
+            className="inline-flex items-center gap-1.5 rounded-xl px-2.5 py-2 text-[11px] font-semibold text-slate-500 transition-colors hover:bg-slate-100 hover:text-slate-800"
+            aria-label={isFullscreen ? 'Exit full screen chat' : 'Open full screen chat'}
+            title={isFullscreen ? 'Exit full screen' : 'Open full screen'}
+          >
+            {isFullscreen ? <Minimize2 className="h-4 w-4" /> : <Maximize2 className="h-4 w-4" />}
+            {isFullscreen && <span className="hidden sm:inline">Exit Full Screen</span>}
           </button>
-        )}
+          {onClose && !isFullscreen && (
+            <button type="button" onClick={onClose} className="rounded-xl p-2 text-slate-400 transition-colors hover:bg-slate-100 hover:text-slate-700" aria-label="Close assistant">
+              <X className="h-5 w-5" />
+            </button>
+          )}
+        </div>
       </header>
 
       <div className="flex items-center gap-2 border-b border-slate-100 bg-slate-50/70 px-5 py-2.5 text-[11px] text-slate-500">
         <Check className="h-3.5 w-3.5 text-blue-600" />
         <span>Product guidance, cart help, and order support</span>
       </div>
+
+      {wasHistoryRestored && (
+        <div className="mx-4 mt-3 flex items-center justify-center gap-2 rounded-xl border border-blue-100 bg-blue-50/60 px-3 py-2 text-[10px] font-semibold text-blue-700" role="status">
+          <Check className="h-3.5 w-3.5" />
+          Conversation continued
+        </div>
+      )}
 
       {cartNotice && (
         <div className="mx-4 mt-3 flex items-center gap-2 rounded-xl border border-emerald-100 bg-emerald-50 px-3 py-2 text-[11px] font-semibold text-emerald-700 shadow-xs" role="status">
@@ -235,13 +303,13 @@ export const ChatPanel: React.FC<ChatPanelProps> = ({
   )
 
   return (
-    <div className="fixed inset-0 z-60 pointer-events-none">
+    <div className={`fixed inset-0 z-60 pointer-events-none ${isFullscreen ? 'bg-slate-950/30 p-3 sm:p-6' : ''}`}>
       <div
-        className={`absolute inset-0 bg-slate-950/30 backdrop-blur-[2px] pointer-events-auto sm:hidden ${embedded ? 'lg:hidden' : ''}`}
+        className={`absolute inset-0 bg-slate-950/30 backdrop-blur-[2px] pointer-events-auto sm:hidden ${embedded ? 'lg:hidden' : ''} ${isFullscreen ? 'hidden' : ''}`}
         onClick={onClose}
         aria-hidden="true"
       />
-      <div className={`pointer-events-auto absolute flex flex-col ${embedded ? 'inset-0 lg:inset-y-20 lg:bottom-4 lg:left-auto lg:right-4 lg:top-20 lg:w-100' : 'inset-y-0 right-0 h-full w-full sm:inset-y-4 sm:right-4 sm:h-[calc(100%-2rem)] sm:w-100'}`}>
+      <div className={`pointer-events-auto absolute flex flex-col ${isFullscreen ? 'inset-3 sm:inset-6' : embedded ? 'inset-0 lg:inset-y-20 lg:bottom-4 lg:left-auto lg:right-4 lg:top-20 lg:w-100' : 'inset-y-0 right-0 h-full w-full sm:inset-y-4 sm:right-4 sm:h-[calc(100%-2rem)] sm:w-100'}`}>
         {panel}
       </div>
     </div>
@@ -271,6 +339,7 @@ const MessageBubble: React.FC<{ message: ChatMessage }> = ({ message }) => {
             </div>
           )}
         </div>
+        {!isUser && message.decisionLog && <DecisionLogView decisionLog={message.decisionLog} />}
       </div>
       {isUser && <Avatar role="user" />}
     </div>
@@ -359,6 +428,34 @@ const MarkdownText: React.FC<{ content: string }> = ({ content }) => {
 
   return <>{elements}</>
 }
+
+const DecisionLogView: React.FC<{ decisionLog: DecisionLog }> = ({ decisionLog }) => (
+  <details open={false} className="group w-full max-w-65 rounded-xl border border-slate-200/80 bg-white/70 text-[11px] shadow-2xs">
+    <summary className="flex cursor-pointer list-none items-center justify-between gap-2 px-3 py-2 font-semibold text-slate-500 [&::-webkit-details-marker]:hidden">
+      <span className="flex min-w-0 items-center gap-1.5">
+        <Brain className="h-3.5 w-3.5 shrink-0 text-blue-500" />
+        <span>AI Decision Log</span>
+      </span>
+      <ChevronDown className="h-3.5 w-3.5 shrink-0 text-slate-400 transition-transform group-open:rotate-180" />
+    </summary>
+    <div className="space-y-2 border-t border-slate-100 px-3 py-2.5 text-slate-600">
+      <p className="leading-relaxed">{decisionLog.summary}</p>
+      {decisionLog.tools.length > 0 && (
+        <div className="space-y-1.5">
+          <p className="text-[10px] font-bold uppercase tracking-wider text-slate-400">Tools used</p>
+          {decisionLog.tools.map((tool, index) => (
+            <div key={`${tool.name}-${index}`} className="rounded-lg bg-slate-50 px-2 py-1.5">
+              <code className="font-semibold text-blue-700">{tool.name}</code>
+              <pre className="mt-1 max-h-20 overflow-auto whitespace-pre-wrap wrap-break-word font-mono text-[10px] text-slate-500">
+                {JSON.stringify(tool.arguments, null, 2)}
+              </pre>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  </details>
+)
 
 const splitTableRow = (line: string) => line.trim().replace(/^\|/, '').replace(/\|$/, '').split('|').map((cell) => cell.trim())
 

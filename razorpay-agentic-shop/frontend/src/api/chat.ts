@@ -1,4 +1,5 @@
 import apiClient from './client'
+import type { JsonValue } from '../types/auditLog'
 
 export interface ChatRequest {
   message: string
@@ -12,6 +13,17 @@ export interface ChatResponse {
   cart_id?: string | null
   order_id?: string | null
   audit_id?: string | null
+  decision_log?: DecisionLog | null
+}
+
+export interface DecisionLogTool {
+  name: string
+  arguments: JsonValue
+}
+
+export interface DecisionLog {
+  tools: DecisionLogTool[]
+  summary: string
 }
 
 export const sendChatMessage = async (request: ChatRequest): Promise<ChatResponse> => {

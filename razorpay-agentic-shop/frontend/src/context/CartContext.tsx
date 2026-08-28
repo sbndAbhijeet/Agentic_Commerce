@@ -1,6 +1,7 @@
 import React, { createContext, useContext, useEffect, useState, useCallback } from 'react'
 import type { CartResponse, CartItemResponse } from '../types/cart'
 import { cartsApi } from '../api/carts'
+import { useAuth } from './AuthContext'
 
 interface CartContextType {
   cart: CartResponse | null;
@@ -21,12 +22,21 @@ const CartContext = createContext<CartContextType | undefined>(undefined)
 const CART_ID_KEY = 'agentic_shop_cart_id'
 
 export const CartProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
+  const { user, isLoading: isAuthLoading } = useAuth()
+  const currentUserId = user?.id
   const [cart, setCart] = useState<CartResponse | null>(null)
   const [cartId, setCartId] = useState<string | null>(() => localStorage.getItem(CART_ID_KEY))
   const [isLoading, setIsLoading] = useState<boolean>(false)
 
   // Initialize or fetch active cart
   const initializeCart = useCallback(async () => {
+    if (!currentUserId) {
+      localStorage.removeItem(CART_ID_KEY)
+      setCart(null)
+      setCartId(null)
+      setIsLoading(false)
+      return
+    }
     setIsLoading(true)
     try {
       const existingCartId = localStorage.getItem(CART_ID_KEY)
@@ -52,11 +62,12 @@ export const CartProvider: React.FC<{ children: React.ReactNode }> = ({ children
     } finally {
       setIsLoading(false)
     }
-  }, [])
+  }, [currentUserId])
 
   useEffect(() => {
+    if (isAuthLoading) return
     initializeCart()
-  }, [initializeCart])
+  }, [initializeCart, isAuthLoading])
 
   const refreshCart = async () => {
     if (!cartId) {
@@ -84,6 +95,7 @@ export const CartProvider: React.FC<{ children: React.ReactNode }> = ({ children
     try {
       let activeCartId = cartId
       if (!activeCartId) {
+        if (!currentUserId) throw new Error('Please login to continue')
         const newCart = await cartsApi.createCart()
         activeCartId = newCart.id
         setCartId(activeCartId)

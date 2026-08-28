@@ -2,10 +2,8 @@ import apiClient from './client'
 import type { CartResponse, CartItemCreate } from '../types/cart'
 
 export const cartsApi = {
-  createCart: async (userId?: string): Promise<CartResponse> => {
-    const response = await apiClient.post<CartResponse>('/carts/', null, {
-      params: userId ? { user_id: userId } : undefined,
-    })
+  createCart: async (): Promise<CartResponse> => {
+    const response = await apiClient.post<CartResponse>('/carts/', null)
     return response.data
   },
 

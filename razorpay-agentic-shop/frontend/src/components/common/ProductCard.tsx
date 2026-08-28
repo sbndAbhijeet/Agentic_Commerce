@@ -1,8 +1,9 @@
 import React, { useState } from 'react'
-import { Link } from 'react-router-dom'
+import { Link, useNavigate } from 'react-router-dom'
 import { ShoppingBag, Check } from 'lucide-react'
 import type { Product } from '../../types/product'
 import { useCart } from '../../context/CartContext'
+import { useAuth } from '../../context/AuthContext'
 import { Badge } from './Badge'
 
 interface ProductCardProps {
@@ -11,12 +12,18 @@ interface ProductCardProps {
 
 export const ProductCard: React.FC<ProductCardProps> = ({ product }) => {
   const { addToCart } = useCart()
+  const { user } = useAuth()
+  const navigate = useNavigate()
   const [isAdding, setIsAdding] = useState(false)
   const [justAdded, setJustAdded] = useState(false)
 
   const handleAddToCart = async (e: React.MouseEvent) => {
     e.preventDefault()
     e.stopPropagation()
+    if (!user) {
+      navigate('/login', { state: { message: 'Please login to continue' } })
+      return
+    }
     if (isAdding) return
 
     try {

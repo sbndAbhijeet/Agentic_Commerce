@@ -1,7 +1,8 @@
 import React, { useState } from 'react'
 import { Link, useNavigate, useLocation } from 'react-router-dom'
-import { ShoppingCart, Search, Sparkles, Package, Store } from 'lucide-react'
+import { ShoppingCart, Search, Sparkles, Package, Store, ScrollText, LogIn, LogOut, UserRound, ChartColumnIncreasing, House } from 'lucide-react'
 import { useCart } from '../../context/CartContext'
+import { useAuth } from '../../context/AuthContext'
 
 interface HeaderProps {
   onOpenCart?: () => void;
@@ -10,6 +11,7 @@ interface HeaderProps {
 
 export const Header: React.FC<HeaderProps> = ({ onOpenCart, onOpenChat }) => {
   const { totalItems } = useCart()
+  const { user, logout } = useAuth()
   const [searchQuery, setSearchQuery] = useState('')
   const navigate = useNavigate()
   const location = useLocation()
@@ -17,9 +19,9 @@ export const Header: React.FC<HeaderProps> = ({ onOpenCart, onOpenChat }) => {
   const handleSearchSubmit = (e: React.FormEvent) => {
     e.preventDefault()
     if (searchQuery.trim()) {
-      navigate(`/?q=${encodeURIComponent(searchQuery.trim())}`)
+      navigate(`/shop?q=${encodeURIComponent(searchQuery.trim())}`)
     } else {
-      navigate('/')
+      navigate('/shop')
     }
   }
 
@@ -67,8 +69,20 @@ export const Header: React.FC<HeaderProps> = ({ onOpenCart, onOpenChat }) => {
                   : 'text-slate-600 hover:text-slate-900 hover:bg-slate-100'
               }`}
             >
+              <House className="w-4 h-4" />
+              <span className="hidden sm:inline">Overview</span>
+            </Link>
+
+            <Link
+              to="/shop"
+              className={`inline-flex items-center gap-1.5 px-3 py-2 rounded-xl text-sm font-medium transition-colors ${
+                location.pathname === '/shop'
+                  ? 'text-blue-600 bg-blue-50/80 font-semibold'
+                  : 'text-slate-600 hover:text-slate-900 hover:bg-slate-100'
+              }`}
+            >
               <Store className="w-4 h-4" />
-              <span className="hidden sm:inline">Catalog</span>
+              <span className="hidden sm:inline">Shop</span>
             </Link>
 
             <Link
@@ -83,6 +97,32 @@ export const Header: React.FC<HeaderProps> = ({ onOpenCart, onOpenChat }) => {
               <span className="hidden sm:inline">Orders</span>
             </Link>
 
+            <Link
+              to="/audit-logs"
+              className={`inline-flex items-center gap-1.5 px-3 py-2 rounded-xl text-sm font-medium transition-colors ${
+                location.pathname.startsWith('/audit-logs')
+                  ? 'text-blue-600 bg-blue-50/80 font-semibold'
+                  : 'text-slate-600 hover:text-slate-900 hover:bg-slate-100'
+              }`}
+            >
+              <ScrollText className="w-4 h-4" />
+              <span className="hidden sm:inline">AI Logs</span>
+            </Link>
+
+            {user?.role === 'merchant' && (
+              <Link
+                to="/merchant"
+                className={`inline-flex items-center gap-1.5 px-3 py-2 rounded-xl text-sm font-medium transition-colors ${
+                  location.pathname.startsWith('/merchant')
+                    ? 'text-blue-600 bg-blue-50/80 font-semibold'
+                    : 'text-slate-600 hover:text-slate-900 hover:bg-slate-100'
+                }`}
+              >
+                <ChartColumnIncreasing className="w-4 h-4" />
+                <span className="hidden sm:inline">Merchant</span>
+              </Link>
+            )}
+
             {onOpenChat && (
               <button
                 type="button"
@@ -93,6 +133,38 @@ export const Header: React.FC<HeaderProps> = ({ onOpenCart, onOpenChat }) => {
                 <Sparkles className="h-4 w-4" />
                 <span className="hidden sm:inline">Ask AI</span>
               </button>
+            )}
+
+            {user ? (
+              <button
+                type="button"
+                onClick={() => {
+                  logout()
+                  navigate('/')
+                }}
+                className="inline-flex items-center gap-1.5 rounded-xl px-2.5 py-2 text-sm font-semibold text-slate-600 transition-colors hover:bg-slate-100 hover:text-slate-900"
+                title="Log out"
+              >
+                <UserRound className="h-4 w-4 text-blue-600" />
+                <span className="hidden max-w-24 truncate lg:inline">{user.full_name || user.email}</span>
+                <LogOut className="h-4 w-4" />
+              </button>
+            ) : (
+              <div className="flex items-center gap-1">
+                <Link
+                  to="/login"
+                  className="inline-flex items-center gap-1.5 rounded-xl px-2.5 py-2 text-sm font-semibold text-slate-600 transition-colors hover:bg-slate-100 hover:text-slate-900"
+                >
+                  <LogIn className="h-4 w-4" />
+                  <span className="hidden sm:inline">Login</span>
+                </Link>
+                <Link
+                  to="/signup"
+                  className="inline-flex rounded-xl bg-blue-600 px-3 py-2 text-sm font-semibold text-white transition-colors hover:bg-blue-700"
+                >
+                  Sign up
+                </Link>
+              </div>
             )}
 
             {/* Cart trigger */}

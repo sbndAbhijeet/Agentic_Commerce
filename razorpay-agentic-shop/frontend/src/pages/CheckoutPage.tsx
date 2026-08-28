@@ -1,19 +1,23 @@
 import React, { useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
-import { ShieldCheck, CheckCircle2, ArrowRight, ArrowLeft, ShoppingBag, Sparkles, CreditCard } from 'lucide-react'
+import { ShieldCheck, CheckCircle2, ArrowRight, ArrowLeft, ShoppingBag, Sparkles, CreditCard, Download } from 'lucide-react'
 import { useCart } from '../context/CartContext'
 import { ordersApi } from '../api/orders'
 import type { OrderResponse } from '../types/order'
 import { payWithRazorpay } from '../services/razorpay'
+import { useAuth } from '../context/AuthContext'
 
 export const CheckoutPage: React.FC = () => {
   const { cart, cartId, totalAmount, clearCartSession } = useCart()
+  const { user } = useAuth()
   const navigate = useNavigate()
 
-  const [email, setEmail] = useState('')
-  const [fullName, setFullName] = useState('')
+  const [email, setEmail] = useState(user?.email || '')
+  const [fullName, setFullName] = useState(user?.full_name || '')
   const [isSubmitting, setIsSubmitting] = useState(false)
   const [createdOrder, setCreatedOrder] = useState<OrderResponse | null>(null)
+  const [isDownloadingReceipt, setIsDownloadingReceipt] = useState(false)
+  const [receiptError, setReceiptError] = useState<string | null>(null)
   const [errorMessage, setErrorMessage] = useState<string | null>(null)
 
   const items = cart?.items || []
@@ -43,6 +47,28 @@ export const CheckoutPage: React.FC = () => {
       setErrorMessage(err instanceof Error ? err.message : 'Failed to place order')
     } finally {
       setIsSubmitting(false)
+    }
+  }
+
+  const handleDownloadReceipt = async () => {
+    if (!createdOrder) return
+    setIsDownloadingReceipt(true)
+    setReceiptError(null)
+    try {
+      const blob = await ordersApi.downloadReceipt(createdOrder.id)
+      const url = URL.createObjectURL(blob)
+      const link = document.createElement('a')
+      link.href = url
+      link.download = `CampusGadgets-Receipt-${createdOrder.id}.pdf`
+      document.body.appendChild(link)
+      link.click()
+      link.remove()
+      URL.revokeObjectURL(url)
+    } catch (err: unknown) {
+      console.error(err)
+      setReceiptError(err instanceof Error ? err.message : 'Unable to download the receipt')
+    } finally {
+      setIsDownloadingReceipt(false)
     }
   }
 
@@ -86,6 +112,19 @@ export const CheckoutPage: React.FC = () => {
 
           <div className="flex flex-col sm:flex-row gap-3 justify-center pt-2">
             <button
+              type="button"
+              onClick={() => void handleDownloadReceipt()}
+              disabled={isDownloadingReceipt}
+              className="inline-flex items-center justify-center gap-2 px-6 py-3 bg-blue-600 hover:bg-blue-700 text-white rounded-xl text-xs font-bold transition-colors cursor-pointer disabled:cursor-not-allowed disabled:bg-blue-300"
+            >
+              {isDownloadingReceipt ? (
+                <span className="inline-block h-4 w-4 animate-spin rounded-full border-2 border-white border-t-transparent" />
+              ) : (
+                <Download className="h-4 w-4" />
+              )}
+              Download Receipt
+            </button>
+            <button
               onClick={() => navigate('/orders')}
               className="px-6 py-3 bg-slate-900 hover:bg-slate-800 text-white rounded-xl text-xs font-bold transition-colors cursor-pointer"
             >
@@ -98,6 +137,7 @@ export const CheckoutPage: React.FC = () => {
               Continue Shopping
             </Link>
           </div>
+          {receiptError && <p className="text-xs font-semibold text-rose-600">{receiptError}</p>}
         </div>
       </div>
     )

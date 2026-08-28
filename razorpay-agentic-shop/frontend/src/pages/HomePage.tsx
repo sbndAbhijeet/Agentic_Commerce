@@ -1,22 +1,22 @@
 import React, { useEffect, useState } from 'react'
-import { useSearchParams } from 'react-router-dom'
+import { Link, useSearchParams } from 'react-router-dom'
 import { Sparkles, SlidersHorizontal, PackageX, RefreshCw, Radio } from 'lucide-react'
 import { productsApi } from '../api/products'
 import type { Product } from '../types/product'
 import { ProductCard } from '../components/common/ProductCard'
 import { LoadingSpinner } from '../components/common/LoadingSpinner'
-import { ChatPanel } from '../components/chat/ChatPanel'
+import { useAuth } from '../context/AuthContext'
 
 export const HomePage: React.FC = () => {
   const [searchParams, setSearchParams] = useSearchParams()
   const currentCategory = searchParams.get('category') || 'All'
   const currentQuery = searchParams.get('q') || ''
+  const { user } = useAuth()
 
   const [products, setProducts] = useState<Product[]>([])
   const [categories, setCategories] = useState<string[]>(['All'])
   const [isLoading, setIsLoading] = useState<boolean>(true)
   const [error, setError] = useState<string | null>(null)
-  const [isChatOpen, setIsChatOpen] = useState(false)
 
   const fetchProducts = async () => {
     setIsLoading(true)
@@ -48,12 +48,6 @@ export const HomePage: React.FC = () => {
   useEffect(() => {
     fetchProducts()
   }, [currentCategory, currentQuery])
-
-  useEffect(() => {
-    const openChat = () => setIsChatOpen(true)
-    window.addEventListener('campusgadgets:open-chat', openChat)
-    return () => window.removeEventListener('campusgadgets:open-chat', openChat)
-  }, [])
 
   const handleCategoryClick = (cat: string) => {
     const params = new URLSearchParams(searchParams)
@@ -96,7 +90,33 @@ export const HomePage: React.FC = () => {
           <p className="text-sm sm:text-base text-slate-300 leading-relaxed max-w-xl">
             Explore cutting-edge tech, lifestyle gadgets, and smart accessories backed by Razorpay's seamless payment flow.
           </p>
+          <div className="flex flex-wrap gap-3 pt-2">
+            {user ? (
+              <Link to="/orders" className="rounded-xl bg-white px-4 py-2.5 text-sm font-bold text-slate-900 hover:bg-blue-50">View your orders</Link>
+            ) : (
+              <>
+                <Link to="/login" className="rounded-xl bg-white px-4 py-2.5 text-sm font-bold text-slate-900 hover:bg-blue-50">Login</Link>
+                <Link to="/signup" className="rounded-xl border border-white/30 px-4 py-2.5 text-sm font-bold text-white hover:bg-white/10">Sign up</Link>
+              </>
+            )}
+          </div>
         </div>
+      </div>
+
+      <section className="grid gap-4 md:grid-cols-2">
+        <div className="rounded-2xl border border-slate-200/80 bg-white p-5 shadow-xs">
+          <h2 className="font-bold text-slate-900">For buyers</h2>
+          <p className="mt-1 text-sm leading-relaxed text-slate-500">Browse openly, then sign in to save a cart, ask the AI assistant for recommendations, and check out securely with Razorpay.</p>
+        </div>
+        <div className="rounded-2xl border border-indigo-100 bg-indigo-50/60 p-5 shadow-xs">
+          <h2 className="font-bold text-indigo-950">For merchants</h2>
+          <p className="mt-1 text-sm leading-relaxed text-indigo-900/70">Use this agentic commerce foundation to connect product discovery, assisted selling, auditability, and payment workflows in one experience.</p>
+        </div>
+      </section>
+
+      <div>
+        <h2 className="text-xl font-extrabold tracking-tight text-slate-900">Browse the catalog</h2>
+        <p className="mt-1 text-sm text-slate-500">Explore products without an account. Login is required only when you’re ready to act.</p>
       </div>
 
       <div className="mb-6 flex flex-wrap items-center gap-x-4 gap-y-2 rounded-2xl border border-blue-100 bg-blue-50/70 px-4 py-3 text-xs font-semibold text-blue-700 shadow-xs">
@@ -207,7 +227,6 @@ export const HomePage: React.FC = () => {
         </div>
       )}
 
-      <ChatPanel embedded isOpen={isChatOpen} onClose={() => setIsChatOpen(false)} />
     </div>
   )
 }

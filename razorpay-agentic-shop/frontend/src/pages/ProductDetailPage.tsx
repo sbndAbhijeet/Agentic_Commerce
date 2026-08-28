@@ -4,6 +4,7 @@ import { ArrowLeft, ShoppingBag, Check, ShieldCheck, Truck, RefreshCw, AlertCirc
 import { productsApi } from '../api/products'
 import  type { Product } from '../types/product'
 import { useCart } from '../context/CartContext'
+import { useAuth } from '../context/AuthContext'
 import { Badge } from '../components/common/Badge'
 import { LoadingSpinner } from '../components/common/LoadingSpinner'
 
@@ -11,6 +12,7 @@ export const ProductDetailPage: React.FC = () => {
   const { id } = useParams<{ id: string }>()
   const navigate = useNavigate()
   const { addToCart } = useCart()
+  const { user } = useAuth()
 
   const [product, setProduct] = useState<Product | null>(null)
   const [quantity, setQuantity] = useState<number>(1)
@@ -39,6 +41,10 @@ export const ProductDetailPage: React.FC = () => {
 
   const handleAddToCart = async () => {
     if (!product || isAdding || product.stock <= 0) return
+    if (!user) {
+      navigate('/login', { state: { message: 'Please login to continue' } })
+      return
+    }
     try {
       setIsAdding(true)
       await addToCart(product.id, quantity)
@@ -68,7 +74,7 @@ export const ProductDetailPage: React.FC = () => {
         <h3 className="text-base font-bold text-slate-900">Product Not Found</h3>
         <p className="text-xs text-slate-400 mt-1">{error || 'The requested product does not exist.'}</p>
         <button
-          onClick={() => navigate('/')}
+          onClick={() => navigate('/shop')}
           className="mt-5 px-4 py-2 bg-slate-900 text-white rounded-xl text-xs font-semibold hover:bg-blue-600 transition-colors"
         >
           Back to Products
@@ -88,7 +94,7 @@ export const ProductDetailPage: React.FC = () => {
       {/* Back button */}
       <div>
         <Link
-          to="/"
+          to="/shop"
           className="inline-flex items-center gap-1.5 text-xs font-semibold text-slate-500 hover:text-slate-900 transition-colors"
         >
           <ArrowLeft className="w-4 h-4" />

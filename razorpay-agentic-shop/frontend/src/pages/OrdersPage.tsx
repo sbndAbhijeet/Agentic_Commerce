@@ -1,17 +1,19 @@
-import React, { useEffect, useState } from 'react'
+import React, { useCallback, useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { Package, Clock, ShoppingBag, ArrowLeft, RefreshCw, AlertCircle } from 'lucide-react'
 import { ordersApi } from '../api/orders'
 import type { OrderResponse } from '../types/order'
 import { Badge } from '../components/common/Badge'
 import { LoadingSpinner } from '../components/common/LoadingSpinner'
+import { useAuth } from '../context/AuthContext'
 
 export const OrdersPage: React.FC = () => {
+  const { isLoading: isAuthLoading } = useAuth()
   const [orders, setOrders] = useState<OrderResponse[]>([])
   const [isLoading, setIsLoading] = useState<boolean>(true)
   const [error, setError] = useState<string | null>(null)
 
-  const fetchOrders = async () => {
+  const fetchOrders = useCallback(async () => {
     setIsLoading(true)
     setError(null)
     try {
@@ -23,11 +25,12 @@ export const OrdersPage: React.FC = () => {
     } finally {
       setIsLoading(false)
     }
-  }
+  }, [])
 
   useEffect(() => {
-    fetchOrders()
-  }, [])
+    if (isAuthLoading) return
+    void fetchOrders()
+  }, [fetchOrders, isAuthLoading])
 
   const getStatusBadge = (status: string) => {
     const s = status.toLowerCase()
