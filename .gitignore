@@ -29,3 +29,7 @@ dist-ssr/
 .DS_Store
 *.swp
 *.swo
+
+# Batch files
+start-dev.bat
+stop-dev.bat

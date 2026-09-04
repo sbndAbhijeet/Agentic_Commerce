@@ -64,7 +64,7 @@ class AuthResponse(BaseModel):
 
 class CartItemCreate(BaseModel):
     product_id: int
-    quantity: int = Field(default=1, ge=1)
+    quantity: int = Field(default=1, ge=1, description="Quantity; the endpoint enforces the maximum of 5.")
 
 class CartItemResponse(BaseModel):
     id: UUID

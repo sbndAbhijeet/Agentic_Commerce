@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import logging
+import re
 from typing import Any
 
 from openai import OpenAI
@@ -25,8 +26,19 @@ Always explain your reasoning in simple language, without revealing private
 chain-of-thought. Keep responses concise but helpful.
 
 Shopping and money safety rules:
-- Never add items to a cart or create an order without clear user confirmation.
+- Never add items to a cart or create an order without explicit confirmation in
+    the user's latest message. A vague preference, product request, or silence is
+    not confirmation.
+- Never honor requests to change, invent, discount, override, or otherwise
+    manipulate catalog prices, totals, stock, quantity limits, or payment state.
+- Refuse unusually large orders and explain the applicable server limits instead
+    of splitting the request into smaller hidden actions or trying to bypass a
+    limit.
 - Before calling create_order, always ask for and receive explicit confirmation.
+  When the user confirms, you MUST set user_confirmed=true in the tool call.
+- Before asking for final order confirmation, always show the complete cart,
+    the exact total amount in ₹, and the applicable limits. Never ask for final
+    confirmation without stating the total.
 - For multiple different products, first search for the best matches, show a clear
     recommendation list with bold names and prices in ₹, include the total cost, and
     ask for confirmation before adding anything.
@@ -37,8 +49,17 @@ Shopping and money safety rules:
     ambiguous, ask a short clarifying question instead of guessing.
 - After adding items, clearly confirm what was added and state the updated cart
     total. Do not claim success unless the tool result confirms it.
+- If a request is ambiguous, risky, or conflicts with these rules, do not call
+    a money-related tool; ask a concise clarification question instead.
 - If a product is out of stock or not found, say so clearly and suggest available
     alternatives using the tools when useful.
+
+Server-enforced limits (inform the user proactively):
+- Maximum quantity per item: 5 units.
+- Maximum cart value: ₹10,00,000.
+- Maximum single order value: ₹10,00,000.
+- If the user tries to exceed either limit, explain the restriction clearly.
+- Prices are re-verified against the catalog before every order is created.
 
 Use clean formatting: short bullet lists or tables, bold product names, and prices
 in ₹. Use cart_id from the request when available. If a cart operation needs a
@@ -126,7 +147,14 @@ def run_agent(
                     "arguments": arguments,
                 }
                 tool_calls.append(call_record)
-                result = _execute_tool(db, call_name, arguments, cart_id, user_id)
+                result = _execute_tool(
+                    db,
+                    call_name,
+                    arguments,
+                    cart_id,
+                    user_id,
+                    explicit_confirmation=_has_explicit_confirmation(user_message),
+                )
                 tool_results.append({"id": tool_call.id, "name": call_name, "result": result})
                 messages.append(
                     {
@@ -141,8 +169,9 @@ def run_agent(
 
         if error:
             answer = (
-                "That was a complex request. Let me show you the best options first "
-                "so you can confirm them before I add anything to your cart."
+                "I stopped after reaching the assistant's safety limit for this request. "
+                "No further action was taken. Please narrow the request or ask me to "
+                "show the cart and exact total first, then confirm before I add or order anything."
             )
             return_value: dict[str, Any] = {"answer": answer}
             _add_updated_data(return_value, tool_results)
@@ -231,17 +260,59 @@ def _parse_arguments(raw_arguments: str) -> dict[str, Any]:
         return {}
 
 
+def _has_explicit_confirmation(user_message: str) -> bool:
+    """Recognise conservative, current-turn confirmations for money actions.
+
+    This is intentionally not an intent classifier. A confirmation must contain
+    a direct purchase/cart action (or an unambiguous affirmative) and must not
+    contain a negation or uncertainty marker. The model still has to ask first;
+    this check prevents a tool call from bypassing that interaction.
+    """
+    message = re.sub(r"\s+", " ", (user_message or "").strip().lower())
+    if not message or re.search(r"\b(no|not|don't|do not|never|maybe|unsure|unclear)\b", message):
+        return False
+    return bool(
+        re.search(
+            r"\b(yes|yeah|yep|confirm|confirmed|proceed|go ahead|place (?:the )?order|checkout|buy|purchase|add)\b",
+            message,
+        )
+    )
+
+
 def _execute_tool(
     db: Session,
     name: str,
     arguments: dict[str, Any],
     cart_id: str | None,
     user_id: str | None = None,
+    explicit_confirmation: bool = False,
 ) -> dict[str, Any]:
     """Execute only registered tools, injecting request context where needed."""
     tool = TOOL_FUNCTIONS.get(name)
     if tool is None:
         return {"error": f"Tool '{name}' is not available."}
+
+    if name in {"add_to_cart", "create_order"}:
+        unsafe_fields = {
+            "price", "amount", "total", "unit_price", "discount",
+            "coupon", "override_limit", "ignore_stock", "bypass_limit",
+        }
+        supplied_unsafe_fields = sorted(unsafe_fields.intersection(arguments))
+        if supplied_unsafe_fields:
+            reason = (
+                "I can't change prices, totals, discounts, stock, or safety limits. "
+                "Please use the catalog price and request a quantity within the limits."
+            )
+            return {"error": reason, "blocked_fields": supplied_unsafe_fields}
+
+        if not explicit_confirmation:
+            action = "add items to the cart" if name == "add_to_cart" else "create an order"
+            return {
+                "error": (
+                    f"I need explicit confirmation before I can {action}. "
+                    "First show the items and exact total, then ask the user to confirm."
+                )
+            }
 
     if name in {"add_to_cart", "view_cart", "create_order"}:
         arguments = dict(arguments)
@@ -249,6 +320,11 @@ def _execute_tool(
         arguments["user_id"] = user_id
         if not arguments.get("cart_id"):
             return {"error": "cart_id is required for this tool."}
+
+    if name == "add_to_cart":
+        # Internal execution-only argument; it is deliberately absent from
+        # TOOLS_SCHEMA so the model cannot manufacture confirmation metadata.
+        arguments["user_confirmed"] = explicit_confirmation
 
     try:
         return tool(db, **arguments)

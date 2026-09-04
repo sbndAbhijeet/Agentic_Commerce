@@ -12,8 +12,8 @@ CampusGadgets is an end-to-end agentic commerce experience for a student-focused
 | Agent-readable catalog | Structured search and product-detail tools expose name, description, price, stock, and category |
 | Explainable money actions | Explicit confirmation is required before cart changes or order creation; each turn returns a decision log |
 | Bounded actions | Allow-listed, authenticated, user-scoped, stock-checked tools with a six-round tool-call limit |
-| Gated payment | Orders begin as `pending`; Razorpay Test Mode signature verification is required before `paid` |
-| Audit trail | User-scoped Audit Logs show tool calls, results, responses, errors, cart IDs, and order IDs |
+| Gated payment | Orders begin as `pending`; Razorpay Test Mode signature, order association, and exact amount are verified before `paid` |
+| Audit trail | User-scoped Audit Logs show tool calls, results, responses, errors, cart IDs, order IDs, and payment verification outcomes |
 | Merchant growth | Dashboard metrics and AI recommendations, with a deterministic fallback if the provider is unavailable |
 | Graceful failure | Safe handling for provider errors, unavailable products, insufficient stock, cancelled payments, and invalid signatures |
 
@@ -26,7 +26,7 @@ CampusGadgets is an end-to-end agentic commerce experience for a student-focused
 3. Review recommendations, prices, and availability.
 4. Confirm: `Add the first one`.
 5. Review the cart, proceed to checkout, and use a Razorpay Test Mode payment method.
-6. Verify payment, view the order, download the PDF receipt, and inspect **Audit Logs**.
+6. Verify payment, view the order, download the PDF receipt, and inspect **Audit Logs** for the tool and payment trail.
 
 ### Merchant
 
@@ -34,6 +34,8 @@ CampusGadgets is an end-to-end agentic commerce experience for a student-focused
 2. Open **Merchant Dashboard**.
 3. Review paid revenue, orders, low-stock products, recent orders, and top sellers.
 4. Select **Generate AI Insights** for recommendations grounded in current dashboard data.
+
+After login, the header and landing-page authentication prompts are hidden. Authenticated merchants see merchant navigation and logout controls instead of Login / Sign Up links.
 
 ## Architecture
 
@@ -54,6 +56,15 @@ orders/audit      agent             checkout
 - **Data:** PostgreSQL 16 through Docker Compose. SQLite is also supported by the backend default, but PostgreSQL is the documented demo path.
 - **AI:** OpenRouter through the OpenAI-compatible SDK; default model `openrouter/free`.
 - **Payments:** Razorpay Python SDK and hosted Checkout script; only `rzp_test_*` keys are accepted.
+
+### Money and abuse limits
+
+- Maximum quantity per item: **5 units**.
+- Maximum cart value: **₹10,00,000**.
+- Maximum single order value: **₹10,00,000**.
+- Every order re-checks that each product is active, in stock, and priced exactly as currently listed in the catalog.
+- Rapid repeated order creation is rate-limited with a friendly cooldown message.
+- Blocked cart, order, and payment-verification attempts are written to `AuditLog` with a reason.
 
 ## Prerequisites
 

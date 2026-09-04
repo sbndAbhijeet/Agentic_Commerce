@@ -21,6 +21,16 @@ from sqlalchemy.orm import Session
 
 from app import models
 from app.core.config import settings
+from app.services.guardrails import (
+    MAX_ITEM_QUANTITY,
+    MAX_CART_VALUE,
+    check_order_rate,
+    log_blocked_action,
+    validate_cart_value,
+    validate_quantity_against_stock,
+    validate_item_quantity,
+    validate_order_preconditions,
+)
 from app.services.razorpay_service import create_razorpay_order
 
 
@@ -122,6 +132,7 @@ def add_to_cart(
     product_id: str,
     quantity: int = 1,
     user_id: str | None = None,
+    user_confirmed: bool = False,
 ) -> dict[str, Any]:
     """Add a product to the cart, or update its quantity if already present.
 
@@ -139,11 +150,34 @@ def add_to_cart(
         The updated cart summary dict, or an "error" key.
     """
     try:
+        # The OpenAI schema intentionally remains unchanged; the execution
+        # layer injects this internal flag only after a current-turn
+        # confirmation has been detected.
+        if not user_confirmed:
+            reason = (
+                "Adding items requires explicit user confirmation. "
+                "Show the item and exact cart total, then ask the user to confirm."
+            )
+            log_blocked_action(
+                db, action="add_to_cart", reason=reason,
+                user_id=user_id, cart_id=cart_id,
+            )
+            return {"error": reason}
+
         product_id_int = _parse_product_id(product_id)
         if product_id_int is None:
             return {"error": f"Invalid product id: {product_id}."}
         if not isinstance(quantity, int) or isinstance(quantity, bool) or quantity < 1:
             return {"error": "Quantity must be a positive integer."}
+
+        # ── Guardrail: quantity cap ──────────────────────────────
+        ok, msg = validate_item_quantity(quantity)
+        if not ok:
+            log_blocked_action(
+                db, action="add_to_cart", reason=msg,
+                user_id=user_id, cart_id=cart_id,
+            )
+            return {"error": msg}
 
         cart = db.query(models.Cart).filter(models.Cart.id == cart_id, models.Cart.user_id == user_id).first()
         if not cart:
@@ -159,16 +193,29 @@ def add_to_cart(
 
         if not product.is_active:
             return {"error": f"Product '{product.name}' is inactive."}
-        if product.stock <= 0:
-            return {"error": f"Product '{product.name}' is out of stock."}
+        stock_ok, stock_message = validate_quantity_against_stock(quantity, product.stock)
+        if not stock_ok:
+            reason = stock_message or "Requested quantity exceeds available stock"
+            log_blocked_action(
+                db, action="add_to_cart", reason=reason,
+                user_id=user_id, cart_id=cart_id,
+            )
+            return {"error": f"{reason} Product: '{product.name}'."}
 
-        if quantity > product.stock:
-            return {
-                "error": (
-                    f"Requested quantity ({quantity}) exceeds available "
-                    f"stock ({product.stock}) for '{product.name}'."
-                )
-            }
+        # ── Guardrail: cart value cap ────────────────────────────
+        # Calculate existing total *excluding* this product (in case of update)
+        existing_total = Decimal("0.00")
+        for ci in cart.items:
+            if ci.product and ci.product_id != product_id_int:
+                existing_total += Decimal(str(ci.product.price)) * ci.quantity
+        added_value = Decimal(str(product.price)) * quantity
+        ok, msg = validate_cart_value(existing_total, added_value)
+        if not ok:
+            log_blocked_action(
+                db, action="add_to_cart", reason=msg,
+                user_id=user_id, cart_id=cart_id,
+            )
+            return {"error": msg}
 
         # Upsert cart item
         cart_item = (
@@ -225,6 +272,7 @@ def create_order(
     db: Session,
     cart_id: str,
     user_id: str,
+    user_confirmed: bool = False,
 ) -> dict[str, Any]:
     """Create a new pending order from an existing cart.
 
@@ -232,32 +280,56 @@ def create_order(
     returns the new order summary.  The cart is **not** cleared so the
     frontend can still display it.
 
+    Requires ``user_confirmed=True`` — the server rejects order creation
+    unless explicit user confirmation has been obtained.
+
     Args:
         db: Active database session.
         cart_id: UUID string of the source cart.
-        user_id: Optional UUID string of the user placing the order.
+        user_id: UUID string of the user placing the order.
+        user_confirmed: Must be True to proceed; enforced server-side.
 
     Returns:
         A dict with "order" containing id, status, items, and total —
         or an "error" key.
     """
     try:
+        # ── Guardrail: explicit user confirmation ────────────────
+        if not user_confirmed:
+            reason = (
+                "Order creation requires explicit user confirmation. "
+                "Please confirm with the user before placing the order."
+            )
+            log_blocked_action(
+                db, action="create_order", reason=reason,
+                user_id=user_id, cart_id=cart_id,
+            )
+            return {"error": reason}
+
         cart = db.query(models.Cart).filter(models.Cart.id == cart_id, models.Cart.user_id == user_id).first()
         if not cart:
             return {"error": f"Cart {cart_id} not found."}
 
-        if not cart.items:
-            return {"error": "Cannot create an order from an empty cart."}
+        rate_ok, rate_message = check_order_rate(db, user_id)
+        if not rate_ok:
+            log_blocked_action(
+                db, action="create_order", reason=rate_message,
+                user_id=user_id, cart_id=cart_id,
+            )
+            return {"error": rate_message}
 
-        # Calculate total
+        # ── Guardrails: full pre-order validation ────────────────
+        ok, msg = validate_order_preconditions(db, cart)
+        if not ok:
+            log_blocked_action(
+                db, action="create_order", reason=msg,
+                user_id=user_id, cart_id=cart_id,
+            )
+            return {"error": msg}
+
+        # Calculate total (already validated above)
         total = Decimal("0.00")
         for ci in cart.items:
-            if ci.product is None or ci.product.price is None:
-                return {"error": f"Product {ci.product_id} is unavailable."}
-            if not ci.product.is_active:
-                return {"error": f"Product '{ci.product.name}' is inactive."}
-            if ci.quantity < 1 or ci.quantity > ci.product.stock:
-                return {"error": f"Cart quantity for '{ci.product.name}' is unavailable."}
             total += Decimal(str(ci.product.price)) * ci.quantity
 
         # Create the order and its items in one transaction so a failure does
@@ -481,7 +553,11 @@ TOOLS_SCHEMA: list[dict[str, Any]] = [
             "name": "create_order",
             "description": (
                 "Create a new pending order from the items currently in the "
-                "cart. Returns the order summary with order ID, status, "
+                "cart. IMPORTANT: You MUST obtain explicit user confirmation "
+                "before calling this tool and set user_confirmed=true. "
+                "The server will reject the call otherwise. "
+                "Maximum 5 units per item, maximum cart and single order value ₹10,00,000. "
+                "Returns the order summary with order ID, status, "
                 "total amount, and item breakdown."
             ),
             "parameters": {
@@ -495,8 +571,16 @@ TOOLS_SCHEMA: list[dict[str, Any]] = [
                         "type": "string",
                         "description": "UUID of the authenticated user placing the order.",
                     },
+                    "user_confirmed": {
+                        "type": "boolean",
+                        "description": (
+                            "Must be true. Set this only after the user has "
+                            "explicitly confirmed they want to place the order."
+                        ),
+                        "default": False,
+                    },
                 },
-                "required": ["cart_id", "user_id"],
+                "required": ["cart_id", "user_id", "user_confirmed"],
             },
         },
     },

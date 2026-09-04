@@ -11,7 +11,7 @@ interface HeaderProps {
 
 export const Header: React.FC<HeaderProps> = ({ onOpenCart, onOpenChat }) => {
   const { totalItems } = useCart()
-  const { user, logout } = useAuth()
+  const { user, token, isLoading: isAuthLoading, logout } = useAuth()
   const [searchQuery, setSearchQuery] = useState('')
   const navigate = useNavigate()
   const location = useLocation()
@@ -149,7 +149,7 @@ export const Header: React.FC<HeaderProps> = ({ onOpenCart, onOpenChat }) => {
                 <span className="hidden max-w-24 truncate lg:inline">{user.full_name || user.email}</span>
                 <LogOut className="h-4 w-4" />
               </button>
-            ) : (
+            ) : token || isAuthLoading ? null : (
               <div className="flex items-center gap-1">
                 <Link
                   to="/login"

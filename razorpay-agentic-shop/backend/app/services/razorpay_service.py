@@ -82,6 +82,13 @@ def verify_payment_signature(
         return False
 
 
+def fetch_razorpay_payment(payment_id: str) -> dict[str, Any]:
+    """Fetch a payment from Razorpay for server-side amount verification."""
+    if not isinstance(payment_id, str) or not payment_id.strip():
+        raise ValueError("payment_id must be a non-empty string.")
+    return _get_client().payment.fetch(payment_id)
+
+
 def _get_client() -> razorpay.Client:
     """Create a configured SDK client lazily for each operation."""
     key_id = settings.RAZORPAY_KEY_ID.strip()

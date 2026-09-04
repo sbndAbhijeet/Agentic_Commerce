@@ -8,6 +8,12 @@ from app import models, schemas
 # pyrefly: ignore [missing-import]
 from app.database import get_db
 from app.core.security import get_current_active_user
+from app.services.guardrails import (
+    log_blocked_action,
+    validate_cart_value,
+    validate_quantity_against_stock,
+    validate_item_quantity,
+)
 
 router = APIRouter(prefix="/api/v1/carts", tags=["carts"])
 
@@ -54,16 +60,47 @@ def add_or_update_item(
     current_user: models.User = Depends(get_current_active_user),
     db: Session = Depends(get_db),
 ):
+    # ── Guardrail: quantity cap ──────────────────────────────────
+    ok, msg = validate_item_quantity(item_in.quantity)
+    if not ok:
+        log_blocked_action(
+            db, action="add_or_update_item", reason=msg,
+            user_id=current_user.id, cart_id=str(cart_id),
+        )
+        raise HTTPException(status_code=400, detail=msg)
+
     cart = db.query(models.Cart).filter(models.Cart.id == str(cart_id), models.Cart.user_id == current_user.id).first()
     if not cart:
         raise HTTPException(status_code=404, detail="Cart not found")
     product = db.query(models.Product).filter(models.Product.id == item_in.product_id).first()
     if not product:
+        reason = f"Product {item_in.product_id} not found"
+        log_blocked_action(db, action="add_or_update_item", reason=reason, user_id=current_user.id, cart_id=str(cart_id))
         raise HTTPException(status_code=404, detail="Product not found")
     if not product.is_active:
+        reason = f"Product '{product.name}' is inactive"
+        log_blocked_action(db, action="add_or_update_item", reason=reason, user_id=current_user.id, cart_id=str(cart_id))
         raise HTTPException(status_code=400, detail="Product is inactive")
-    if product.stock < item_in.quantity:
-        raise HTTPException(status_code=400, detail="Requested quantity exceeds available stock")
+    stock_ok, stock_message = validate_quantity_against_stock(item_in.quantity, product.stock)
+    if not stock_ok:
+        reason = stock_message or "Requested quantity exceeds available stock"
+        log_blocked_action(db, action="add_or_update_item", reason=reason, user_id=current_user.id, cart_id=str(cart_id))
+        raise HTTPException(status_code=400, detail=reason)
+
+    # ── Guardrail: cart value cap ────────────────────────────────
+    existing_total = Decimal("0.00")
+    for ci in cart.items:
+        if ci.product and ci.product_id != item_in.product_id:
+            existing_total += Decimal(str(ci.product.price)) * ci.quantity
+    added_value = Decimal(str(product.price)) * item_in.quantity
+    ok, msg = validate_cart_value(existing_total, added_value)
+    if not ok:
+        log_blocked_action(
+            db, action="add_or_update_item", reason=msg,
+            user_id=current_user.id, cart_id=str(cart_id),
+        )
+        raise HTTPException(status_code=400, detail=msg)
+
     cart_item = (
         db.query(models.CartItem)
         .filter(models.CartItem.cart_id == str(cart_id), models.CartItem.product_id == item_in.product_id)

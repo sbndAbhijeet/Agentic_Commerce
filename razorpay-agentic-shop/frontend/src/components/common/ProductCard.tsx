@@ -11,11 +11,12 @@ interface ProductCardProps {
 }
 
 export const ProductCard: React.FC<ProductCardProps> = ({ product }) => {
-  const { addToCart } = useCart()
+  const { addToCart, cart } = useCart()
   const { user } = useAuth()
   const navigate = useNavigate()
   const [isAdding, setIsAdding] = useState(false)
   const [justAdded, setJustAdded] = useState(false)
+  const [addError, setAddError] = useState<string | null>(null)
 
   const handleAddToCart = async (e: React.MouseEvent) => {
     e.preventDefault()
@@ -28,11 +29,23 @@ export const ProductCard: React.FC<ProductCardProps> = ({ product }) => {
 
     try {
       setIsAdding(true)
+      setAddError(null)
+      const currentQuantity = cart?.items.find((item) => item.product_id === product.id)?.quantity || 0
+      const maximumAllowed = Math.min(product.stock, 5)
+      if (currentQuantity + 1 > maximumAllowed) {
+        setAddError(
+          product.stock < 5
+            ? `Only ${product.stock} ${product.stock === 1 ? 'unit is' : 'units are'} available.`
+            : 'Maximum 5 units of one product can be added.',
+        )
+        return
+      }
       await addToCart(product.id, 1)
       setJustAdded(true)
       setTimeout(() => setJustAdded(false), 1500)
     } catch (err) {
       console.error(err)
+      setAddError(err instanceof Error ? err.message : 'Unable to add this item.')
     } finally {
       setIsAdding(false)
     }
@@ -126,6 +139,7 @@ export const ProductCard: React.FC<ProductCardProps> = ({ product }) => {
             )}
           </button>
         </div>
+        {addError && <p className="mt-2 text-right text-xs font-medium text-rose-600" role="alert">{addError}</p>}
       </div>
     </div>
   )

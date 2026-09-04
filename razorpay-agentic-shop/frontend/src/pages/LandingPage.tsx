@@ -1,5 +1,6 @@
 import React from 'react'
 import { Link } from 'react-router-dom'
+import { useAuth } from '../context/AuthContext'
 import {
   Bot,
   ChartColumnIncreasing,
@@ -55,6 +56,8 @@ const architectureItems = [
 ]
 
 export const LandingPage: React.FC = () => {
+  const { user } = useAuth()
+
   return (
     <div className="space-y-10 pb-8">
       <section className="relative overflow-hidden rounded-[2rem] border border-slate-200/70 bg-linear-to-br from-slate-950 via-blue-950 to-cyan-950 px-6 py-10 text-white shadow-xl sm:px-10 sm:py-14">
@@ -83,12 +86,14 @@ export const LandingPage: React.FC = () => {
             >
               Browse Products
             </Link>
-            <Link
-              to="/login"
-              className="inline-flex items-center gap-2 rounded-xl border border-white/20 bg-white/10 px-5 py-3 text-sm font-bold text-white transition-colors hover:bg-white/15"
-            >
-              Login / Sign Up
-            </Link>
+            {!user && (
+              <Link
+                to="/login"
+                className="inline-flex items-center gap-2 rounded-xl border border-white/20 bg-white/10 px-5 py-3 text-sm font-bold text-white transition-colors hover:bg-white/15"
+              >
+                Login / Sign Up
+              </Link>
+            )}
           </div>
         </div>
       </section>
